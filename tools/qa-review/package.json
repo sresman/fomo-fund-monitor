@@ -1,0 +1,11 @@
+{
+  "name": "qa-review",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.96.0",
+    "@google/genai": "^2.2.0",
+    "openai": "^6.37.0"
+  }
+}
