@@ -1,6 +1,6 @@
-# Main Workstream
+# Monitor Workstream
 
-> Living doc. Clean up when major blocks complete. `/resume main` reads this.
+> Living doc. Clean up when major blocks complete. `/resume monitor` reads this.
 
 ---
 
@@ -33,7 +33,7 @@ _Define initial tasks here._
 
 ## Settled Decisions
 
-Full details in `workstreams/main-decisions.md` (loaded on demand, not at startup).
+Full details in `workstreams/monitor-decisions.md` (loaded on demand, not at startup).
 
 **Key rules (always apply):**
 _None yet. Add rules here as architectural decisions are made._

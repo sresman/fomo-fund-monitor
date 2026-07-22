@@ -1,6 +1,6 @@
 # /resume -- Session Start Command
 
-Usage: `/resume [workstream]` e.g. `/resume main` or `/resume main`
+Usage: `/resume [workstream]` e.g. `/resume monitor`
 
 Run at the start of every Claude Code session before touching any code.
 
@@ -13,7 +13,7 @@ Run at the start of every Claude Code session before touching any code.
 2. Look at the "Arguments passed to this invocation" line above. If it is non-empty, treat each space-separated token as a workstream name. If it is empty (the user ran bare `/resume`), read all workstream docs.
 
 3. Read the relevant workstream doc(s) from `workstreams/`:
-   - `workstreams/main.md`
+   - `workstreams/monitor.md`
    Do NOT read the `*-decisions.md` companion files at startup; load them mid-session when you hit a question they'd answer.
 
 <!-- Spec loading: each workstream doc has an "Active specs in use" section.

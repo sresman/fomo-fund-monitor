@@ -6,7 +6,7 @@ Orchestrates a multi-prompt build where each prompt goes through automated QA re
 
 **Arguments passed to this invocation**: `$ARGUMENTS`
 
-Parse arguments: first word is the **workstream name** (e.g., `main`). Everything after is the spec file path or inline instructions.
+Parse arguments: first word is the **workstream name** (e.g., `monitor`). Everything after is the spec file path or inline instructions.
 
 ---
 
