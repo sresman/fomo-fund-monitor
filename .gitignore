@@ -6,3 +6,4 @@ tools/qa-review/node_modules/
 .DS_Store
 .mypy_cache/
 .pytest_cache/
+state/*.tmp

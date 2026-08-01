@@ -1,0 +1,71 @@
+name: FOMO Fund Monitor
+
+# Cron fires every 15 minutes; main.py gates each monitor by its own interval
+# (last_run.json) so we stay within API quotas while running EDGAR frequently.
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch: {}
+
+# The job commits updated state files back to the repo.
+permissions:
+  contents: write
+
+# Never run two passes concurrently (state-file races), but never cancel a
+# run mid-flight either -- a cancelled run could leave partially-committed state.
+concurrency:
+  group: fomo-fund-monitor
+  cancel-in-progress: false
+
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Sync latest state (avoid stale-checkout races)
+        # A prior run may have pushed newer state after this run's checkout was
+        # scheduled; rebase our (empty) working tree onto it before running so
+        # we read the freshest last_run.json / seen_*.json.
+        run: git pull --rebase --autostash origin "$GITHUB_REF_NAME"
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run monitors
+        env:
+          YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
+          GMAIL_USER: ${{ secrets.GMAIL_USER }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          TWILIO_SID: ${{ secrets.TWILIO_SID }}
+          TWILIO_AUTH: ${{ secrets.TWILIO_AUTH }}
+          TWILIO_FROM: ${{ secrets.TWILIO_FROM }}
+          ALERT_PHONE: ${{ secrets.ALERT_PHONE }}
+          ALERT_EMAIL: ${{ secrets.ALERT_EMAIL }}
+          # Optional: only needed once dispatch_bridge.enabled = true in config.yaml.
+          DISPATCH_GITHUB_PAT: ${{ secrets.DISPATCH_GITHUB_PAT }}
+        run: python main.py
+
+      - name: Commit state updates
+        if: success()
+        run: |
+          git config user.name "fomo-monitor-bot"
+          git config user.email "fomo-monitor@users.noreply.github.com"
+          git add state/
+          # Nothing changed => no commit, no push (clean no-op run).
+          if git diff --cached --quiet; then
+            echo "No state changes to commit."
+            exit 0
+          fi
+          git commit -m "Update monitor state $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          # Re-sync in case a concurrent run pushed between our run and now, then push.
+          git pull --rebase --autostash origin "$GITHUB_REF_NAME"
+          git push

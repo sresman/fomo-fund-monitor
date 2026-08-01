@@ -1,0 +1,104 @@
+# Purpose-built config fixture for tests/test_edgar.py. Do NOT depend on the
+# incidental prod config.yaml. Three entities:
+#   - atreides: tracks every form the classification test exercises, incl.
+#     amendments AND a tracked-but-UNMAPPED form (ZZZ-TEST) to prove the .get
+#     fallback path.
+#   - situational_awareness: tracks 13F-HR/4 but NOT NPORT-P (proves filtering).
+#   - empty_tracker: filing_types is empty (proves nothing passes the filter but
+#     first-run still seeds by accession).
+
+entities:
+  - key: atreides
+    name: "Atreides Management LLC"
+    person: "Gavin Baker"
+    cik: "0001777813"
+    filing_types:
+      - "13F-HR"
+      - "13F-HR/A"
+      - "SC 13D"
+      - "SC 13D/A"
+      - "SC 13G"
+      - "SC 13G/A"
+      - "4"
+      - "NPORT-P"
+      - "ZZZ-TEST"
+  - key: situational_awareness
+    name: "Situational Awareness LP"
+    person: "Leopold Aschenbrenner"
+    cik: "0002045724"
+    filing_types: ["13F-HR", "4"]
+  - key: empty_tracker
+    name: "Empty Tracker Fund"
+    person: "Nobody"
+    cik: "0000000042"
+    filing_types: ["13F-HR"]
+
+monitor_intervals:
+  edgar: 15
+  youtube: 120
+  podcast_rss: 30
+  google_news: 120
+  cnbc: 360
+  conference_pages: 1440
+  website_diff: 1440
+
+youtube:
+  queries_by_entity:
+    atreides:
+      broad_queries: ['"Gavin Baker"']
+      sweep_queries:
+        - '"Gavin Baker" Atreides'
+    situational_awareness:
+      broad_queries: ['"Leopold Aschenbrenner"']
+      sweep_queries:
+        - '"Situational Awareness" AI OR AGI'
+  max_results_per_query: 5
+  master_manifest_path: "reference/master_manifest_v2.json"
+
+podcast_rss:
+  feeds:
+    - show: "Invest Like the Best"
+      url: ""
+      keywords: ["Baker", "Atreides"]
+
+google_news:
+  queries:
+    - '"Gavin Baker" interview'
+
+cnbc:
+  queries: ["Gavin Baker"]
+
+conference_pages:
+  - key: bic_speakers
+    conference: "Boston Investment Conference"
+    url: "https://bostoninvestmentconference.com/speakers"
+    season_months: [9, 10, 11]
+    keywords: ["Baker"]
+
+website_diff:
+  - key: gavinbaker_net
+    url: "https://gavinbaker.net"
+    keywords: []
+    check_rss: false
+
+alert_routing:
+  filing_13f:        ["email", "sms"]
+  filing_sc13:       ["email", "sms"]
+  filing_form4:      ["email"]
+  filing_other:      ["email"]
+  youtube_high:      ["email", "sms"]
+  youtube_medium:    ["email"]
+  podcast_rss:       ["email", "sms"]
+  google_news:       ["email"]
+  cnbc_video:        ["email", "sms"]
+  conference_change: ["email"]
+  leopold_post:      ["email", "sms"]
+  website_diff:      ["email"]
+
+alert_recipients:
+  email_env: "ALERT_EMAIL"
+  phone_env: "ALERT_PHONE"
+
+paths:
+  state_dir: "state"
+  reference_dir: "reference"

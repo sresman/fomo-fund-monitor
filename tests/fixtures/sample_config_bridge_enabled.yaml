@@ -1,0 +1,108 @@
+# Minimal VALID config fixture for loader tests. Mutation tests operate on
+# tmp copies of this file, never edit it in place.
+
+entities:
+  - key: atreides
+    name: "Atreides Management LLC"
+    person: "Gavin Baker"
+    cik: "0001777813"
+    filing_types: ["13F-HR", "13F-HR/A", "4"]
+  - key: situational_awareness
+    name: "Situational Awareness LP"
+    person: "Leopold Aschenbrenner"
+    cik: "0002045724"
+    filing_types: ["13F-HR", "4"]
+
+monitor_intervals:
+  edgar: 15
+  youtube: 120
+  podcast_rss: 30
+  google_news: 120
+  cnbc: 360
+  conference_pages: 1440
+  website_diff: 1440
+
+youtube:
+  queries_by_entity:
+    atreides:
+      broad_queries: ['"Gavin Baker"']
+      sweep_queries:
+        - '"Gavin Baker" Atreides'
+    situational_awareness:
+      broad_queries: ['"Leopold Aschenbrenner"']
+      sweep_queries:
+        - '"Situational Awareness" AI OR AGI'
+  max_results_per_query: 5
+  master_manifest_path: "reference/master_manifest_v2.json"
+  known_channels:
+    - "All-In Podcast"
+    - "Bg2 Pod"
+  framing_keywords:
+    - "interview"
+    - "podcast"
+
+podcast_rss:
+  feeds:
+    - show: "Invest Like the Best"
+      url: ""
+      keywords: ["Baker", "Atreides"]
+    - show: "All-In Podcast"
+      url: "https://example.com/allin.rss"
+      keywords: ["Baker"]
+
+google_news:
+  queries:
+    - '"Gavin Baker" interview'
+    - '"Leopold Aschenbrenner" AI'
+
+cnbc:
+  queries: ["Gavin Baker", "Leopold Aschenbrenner"]
+
+conference_pages:
+  - key: bic_speakers
+    conference: "Boston Investment Conference"
+    url: "https://bostoninvestmentconference.com/speakers"
+    season_months: [9, 10, 11]
+    keywords: ["Baker", "Aschenbrenner"]
+  - key: fii_speakers
+    conference: "FII Institute / Priority"
+    url: "https://fii-institute.org"
+    season_months: []
+    keywords: ["Baker", "Aschenbrenner"]
+
+website_diff:
+  - key: gavinbaker_net
+    url: "https://gavinbaker.net"
+    keywords: []
+    check_rss: false
+  - key: situational_awareness_com
+    url: "https://situational-awareness.com"
+    keywords: ["AGI"]
+    check_rss: true
+
+alert_routing:
+  filing_13f:        ["email", "sms"]
+  filing_sc13:       ["email", "sms"]
+  filing_form4:      ["email"]
+  filing_other:      ["email"]
+  youtube_high:      ["email", "sms"]
+  youtube_medium:    ["email"]
+  podcast_rss:       ["email", "sms"]
+  google_news:       ["email"]
+  cnbc_video:        ["email", "sms"]
+  conference_change: ["email"]
+  leopold_post:      ["email", "sms"]
+  website_diff:      ["email"]
+
+alert_recipients:
+  email_env: "ALERT_EMAIL"
+  phone_env: "ALERT_PHONE"
+
+paths:
+  state_dir: "state"
+  reference_dir: "reference"
+
+dispatch_bridge:
+  enabled: true
+  repo: "collectifadv/celeb-pm"
+  event_type: "fomo_monitor_event"

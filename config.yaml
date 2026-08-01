@@ -1,0 +1,194 @@
+# config.yaml — all user-tunable configuration. NO SECRETS (those come from env).
+
+entities:
+  - key: atreides                       # stable internal id; used as state-file key
+    name: "Atreides Management LLC"
+    person: "Gavin Baker"
+    cik: "0001777813"                   # 10-digit zero-padded
+    filing_types: ["13F-HR", "13F-HR/A", "SC 13D", "SC 13D/A", "SC 13G", "SC 13G/A", "4", "NPORT-P"]
+  - key: situational_awareness
+    name: "Situational Awareness LP"
+    person: "Leopold Aschenbrenner"
+    cik: "0002045724"
+    filing_types: ["13F-HR", "13F-HR/A", "SC 13D", "SC 13D/A", "SC 13G", "SC 13G/A", "4"]
+
+# Minutes between runs per monitor (interval gating consults last_run.json).
+# EVERY monitor name in constants.MONITOR_NAMES must be present here — exact set (fail fast on
+# any missing OR unknown key).
+monitor_intervals:
+  edgar: 15
+  youtube: 120
+  podcast_rss: 30
+  google_news: 120
+  cnbc: 360
+  conference_pages: 1440
+  website_diff: 1440
+
+# ---- Monitor config slots (Prompts 3–5 consume these) ----
+
+youtube:
+  # Broad queries run every interval; sweep queries run once/day (Prompt 4 logic).
+  # Keyed by entity.key. Every key here MUST match a defined entities[].key (else ConfigError).
+  queries_by_entity:
+    atreides:                            # was "baker" in the spec's example
+      broad_queries: ['"Gavin Baker"']
+      sweep_queries:
+        - '"Gavin Baker" Atreides'
+        - '"Gavin Baker" semiconductors OR AI'
+        - '"Atreides Management" interview OR podcast'
+    situational_awareness:               # was "leopold" in the spec's example
+      broad_queries: ['"Leopold Aschenbrenner"']
+      sweep_queries:
+        - '"Leopold Aschenbrenner" Situational Awareness'
+        - '"Situational Awareness" AI OR AGI'
+  max_results_per_query: 5               # must be > 0
+  master_manifest_path: "reference/master_manifest_v2.json"  # dedupe source (Prompt 4)
+  known_channels:                        # channel titles trusted as podcast/media (confidence HIGH input)
+    - "All-In Podcast"
+    - "Invest Like the Best"
+    - "Bg2 Pod"
+    - "This Week in Startups"
+    - "Dwarkesh Patel"
+    - "Lex Fridman"
+    - "CNBC Television"
+    - "Bloomberg Television"
+  framing_keywords:                      # interview/guest framing tokens (lowercased match)
+    - "interview"
+    - "podcast"
+    - "conversation"
+    - "sits down"
+    - "joins"
+    - "in conversation"
+    - "on the show"
+    - "ep."
+    - "episode"
+
+podcast_rss:
+  # RSS URL discovery is a manual one-time task (spec). Structure present, URLs empty.
+  feeds:
+    - show: "Invest Like the Best"
+      url: ""
+      keywords: ["Baker", "Atreides"]
+    - show: "All-In Podcast"
+      url: ""
+      keywords: ["Baker", "Gavin"]
+    - show: "This Week in Startups"
+      url: ""
+      keywords: ["Baker"]
+    - show: "Capital Allocators"
+      url: ""
+      keywords: ["Baker", "Atreides"]
+    - show: "a16z Podcast"
+      url: ""
+      keywords: ["Baker"]
+    - show: "BG2 Pod"
+      url: ""
+      keywords: ["Baker"]
+    - show: "Bankless / Limitless"
+      url: ""
+      keywords: ["Baker"]
+    - show: "TBPN"
+      url: ""
+      keywords: ["Baker"]
+    - show: "Generating Alpha"
+      url: ""
+      keywords: ["Baker"]
+    - show: "Dwarkesh Podcast"
+      url: ""
+      keywords: ["Leopold", "Aschenbrenner"]
+    - show: "Lex Fridman"
+      url: ""
+      keywords: ["Leopold", "Aschenbrenner"]
+
+google_news:
+  queries:
+    - '"Gavin Baker" interview OR podcast OR conference OR panel'
+    - '"Gavin Baker" Atreides'
+    - '"Leopold Aschenbrenner" interview OR podcast OR AI'
+    - '"Situational Awareness" Aschenbrenner'
+
+cnbc:
+  queries: ["Gavin Baker", "Leopold Aschenbrenner"]
+
+conference_pages:
+  - key: bic_speakers
+    conference: "Boston Investment Conference"
+    url: "https://bostoninvestmentconference.com/speakers"
+    season_months: [9, 10, 11]
+    keywords: ["Baker", "Aschenbrenner"]
+  - key: iconnections_speakers
+    conference: "iConnections Global Alts"
+    url: "https://iconnections.io"
+    season_months: [11, 12, 1, 2]
+    keywords: ["Baker", "Aschenbrenner"]
+  - key: sohn_ny_speakers
+    conference: "Sohn Conference (NY)"
+    url: "https://sohnconference.org"
+    season_months: [3, 4, 5]
+    keywords: ["Baker", "Aschenbrenner"]
+  - key: sohn_montreal_speakers
+    conference: "Sohn Montreal"
+    url: "https://sohnmontreal.org"
+    season_months: [3, 4, 5, 6]
+    keywords: ["Baker", "Aschenbrenner"]
+  - key: sohn_heartsandminds_speakers
+    conference: "Sohn Hearts & Minds (Australia)"
+    url: "https://sohnheartsandminds.com.au"
+    season_months: [9, 10, 11, 12]
+    keywords: ["Baker", "Aschenbrenner"]
+  - key: fii_speakers
+    conference: "FII Institute / Priority"
+    url: "https://fii-institute.org"
+    season_months: []               # year-round; empty == always in-season
+    keywords: ["Baker", "Aschenbrenner"]
+
+website_diff:
+  - key: gavinbaker_net
+    url: "https://gavinbaker.net"
+    keywords: []                    # any change of interest; empty == alert on any diff
+    check_rss: false
+  - key: situational_awareness_com
+    url: "https://situational-awareness.com"
+    keywords: []
+    check_rss: true                 # Substack-style /feed (Prompt 5 logic)
+
+# ---- Alert routing matrix (Prompt 2 consumes) ----
+# Keys are EventType values (parsed into EventType members by the loader).
+# MUST cover EXACTLY every EventType member — missing OR unknown key => ConfigError.
+# Each maps to the channels to fire (validated against AlertChannel).
+alert_routing:
+  filing_13f:        ["email", "sms"]
+  filing_sc13:       ["email", "sms"]
+  filing_form4:      ["email"]
+  filing_other:      ["email"]
+  youtube_high:      ["email", "sms"]
+  youtube_medium:    ["email"]
+  podcast_rss:       ["email", "sms"]
+  google_news:       ["email"]
+  cnbc_video:        ["email", "sms"]
+  conference_change: ["email"]
+  leopold_post:      ["email", "sms"]
+  website_diff:      ["email"]
+
+# ---- Alert recipient references (env var NAMES, not values) ----
+# The loader stores the env-var name; the alerter (Prompt 2) resolves via os.environ.
+# NOTE: the loader does NOT check the env var exists (that's a Prompt 2/6 runtime concern),
+# but it DOES reject an empty env-var name string.
+alert_recipients:
+  email_env: "ALERT_EMAIL"
+  phone_env: "ALERT_PHONE"
+
+# ---- Filesystem paths (resolved relative to THIS config file's directory = repo root) ----
+paths:
+  state_dir: "state"
+  reference_dir: "reference"
+
+# ---- repository_dispatch bridge to the celeb-pm repo (Prompt 6) ----
+# Optional. When enabled, each COMMITTED event fires a repository_dispatch to the
+# target repo. The PAT is resolved from env (DISPATCH_GITHUB_PAT) AT CALL TIME;
+# if absent, the bridge is skipped with a single INFO log (never breaks the run).
+# `repo` is ONLY validated as owner/name when enabled: true.
+dispatch_bridge:
+  enabled: false                     # default off; flip to true once the PAT + receiver exist
+  repo: "collectifadv/celeb-pm"      # owner/name of the receiving repo (PLACEHOLDER — operator fills)
+  event_type: "fomo_monitor_event"   # optional; defaults to DEFAULT_DISPATCH_EVENT_TYPE if omitted

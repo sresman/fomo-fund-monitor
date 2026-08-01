@@ -1,0 +1,7 @@
+requests>=2.31
+feedparser>=6.0
+beautifulsoup4>=4.12
+twilio>=8.0
+pyyaml>=6.0
+lxml>=4.9
+google-api-python-client>=2.0

@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>"Gavin Baker" - Google News</title>
+    <link>https://news.google.com/</link>
+    <description>Google News search results.</description>
+    <item>
+      <title>Gavin Baker discusses AI cycle - Bloomberg</title>
+      <link>https://news.google.com/rss/articles/redirect-abc123</link>
+      <guid isPermaLink="false">gn-guid-1</guid>
+      <pubDate>Tue, 22 Jul 2025 14:00:00 GMT</pubDate>
+      <source url="https://www.bloomberg.com">Bloomberg</source>
+    </item>
+    <item>
+      <title>Leopold Aschenbrenner on AGI timelines</title>
+      <link>https://news.google.com/rss/articles/redirect-def456</link>
+      <guid isPermaLink="false">gn-guid-2</guid>
+      <pubDate>Wed, 23 Jul 2025 08:15:00 GMT</pubDate>
+      <source url="https://www.theverge.com">The Verge</source>
+    </item>
+  </channel>
+</rss>

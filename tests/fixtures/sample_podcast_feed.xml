@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>Invest Like the Best</title>
+    <link>https://example.com/iltb</link>
+    <description>A podcast feed for testing.</description>
+    <item>
+      <title>Gavin Baker on semiconductors</title>
+      <link>https://example.com/iltb/ep1</link>
+      <guid isPermaLink="false">guid-ep1</guid>
+      <description>A conversation with Gavin Baker about chips and AI.</description>
+      <pubDate>Tue, 22 Jul 2025 12:00:00 GMT</pubDate>
+      <enclosure url="https://example.com/audio/ep1.mp3" length="12345" type="audio/mpeg"/>
+    </item>
+    <item>
+      <title>A generic market episode with no guid</title>
+      <link>https://example.com/iltb/ep2</link>
+      <description>Some market commentary, no notable guest.</description>
+      <pubDate>Wed, 23 Jul 2025 09:30:00 GMT</pubDate>
+    </item>
+    <item>
+      <title>Baker interview without a date</title>
+      <link>https://example.com/iltb/ep3</link>
+      <guid isPermaLink="false">guid-ep3</guid>
+      <description>Another Baker discussion, missing pubDate on purpose.</description>
+    </item>
+  </channel>
+</rss>

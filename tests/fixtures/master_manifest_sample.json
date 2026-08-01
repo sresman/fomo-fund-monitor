@@ -1,0 +1,113 @@
+[
+  {
+    "date": "2019-11-26",
+    "source": "Invest Like the Best",
+    "label": "iltb_tech_consumer",
+    "host": "Patrick O'Shaughnessy",
+    "topic": "Tech and consumer growth investing",
+    "filepath": "transcripts/whisper/iltb.txt",
+    "quality": "whisper_small",
+    "status": "ok",
+    "url": "https://traffic.megaphone.fm/CLS1681572012.mp3?updated=1767976359"
+  },
+  {
+    "date": "2021-05-01",
+    "source": "CNBC",
+    "label": "cnbc_seg",
+    "host": "",
+    "topic": "Market segment",
+    "filepath": "transcripts/whisper/cnbc.txt",
+    "quality": "whisper_small",
+    "status": "ok",
+    "url": "https://www.cnbc.com/2021/05/01/some-article.html"
+  },
+  {
+    "date": "2022-01-01",
+    "source": "YouTube",
+    "label": "yt_watch",
+    "host": "",
+    "topic": "Interview watch url",
+    "filepath": "transcripts/whisper/yt1.txt",
+    "quality": "whisper_small",
+    "status": "ok",
+    "url": "https://www.youtube.com/watch?v=aaaaaaaaaaa&t=30s"
+  },
+  {
+    "date": "2022-02-01",
+    "source": "YouTube",
+    "label": "yt_short_be",
+    "host": "",
+    "topic": "youtu.be short link",
+    "filepath": "transcripts/whisper/yt2.txt",
+    "quality": "whisper_small",
+    "status": "ok",
+    "url": "https://youtu.be/bbbbbbbbbbb"
+  },
+  {
+    "date": "2022-03-01",
+    "source": "YouTube",
+    "label": "yt_shorts",
+    "host": "",
+    "topic": "shorts path",
+    "filepath": "transcripts/whisper/yt3.txt",
+    "quality": "whisper_small",
+    "status": "ok",
+    "url": "https://www.youtube.com/shorts/ccccccccccc"
+  },
+  {
+    "date": "2022-04-01",
+    "source": "YouTube",
+    "label": "yt_embed",
+    "host": "",
+    "topic": "embed path",
+    "filepath": "transcripts/whisper/yt4.txt",
+    "quality": "whisper_small",
+    "status": "ok",
+    "url": "https://www.youtube.com/embed/ddddddddddd"
+  },
+  {
+    "date": "2022-05-01",
+    "source": "YouTube",
+    "label": "yt_nocookie_embed",
+    "host": "",
+    "topic": "nocookie embed",
+    "filepath": "transcripts/whisper/yt5.txt",
+    "quality": "whisper_small",
+    "status": "ok",
+    "url": "https://www.youtube-nocookie.com/embed/eeeeeeeeeee"
+  },
+  {
+    "date": "2022-06-01",
+    "source": "Fake",
+    "label": "false_host",
+    "host": "",
+    "topic": "notyoutube host false positive",
+    "filepath": "transcripts/whisper/fp1.txt",
+    "quality": "whisper_small",
+    "status": "ok",
+    "url": "https://notyoutube.com/watch?v=fffffffffff"
+  },
+  {
+    "date": "2022-07-01",
+    "source": "Fake",
+    "label": "twelve_char",
+    "host": "",
+    "topic": "12-char id false positive",
+    "filepath": "transcripts/whisper/fp2.txt",
+    "quality": "whisper_small",
+    "status": "ok",
+    "url": "https://www.youtube.com/watch?v=gggggggggggg"
+  },
+  {
+    "date": "2022-08-01",
+    "source": "Empty",
+    "label": "empty_url",
+    "host": "",
+    "topic": "empty url",
+    "filepath": "transcripts/whisper/empty.txt",
+    "quality": "whisper_small",
+    "status": "ok",
+    "url": ""
+  },
+  "this-is-a-non-dict-element"
+]
