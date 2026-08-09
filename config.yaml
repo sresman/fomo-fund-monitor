@@ -52,6 +52,15 @@ youtube:
     - "Lex Fridman"
     - "CNBC Television"
     - "Bloomberg Television"
+    - "a16z"
+    - "Capital Allocators with Ted Seides"
+    - "iConnections"
+    - "Sohn Conference Foundation"
+    - "Heller House"
+    - "Generating Alpha Podcast"
+    - "The Limitless Podcast"
+    - "TBPN"
+    - "Aleph"
   framing_keywords:                      # interview/guest framing tokens (lowercased match)
     - "interview"
     - "podcast"
@@ -64,37 +73,39 @@ youtube:
     - "episode"
 
 podcast_rss:
-  # RSS URL discovery is a manual one-time task (spec). Structure present, URLs empty.
   feeds:
     - show: "Invest Like the Best"
-      url: ""
+      url: "https://feeds.megaphone.fm/investlikethebest"
       keywords: ["Baker", "Atreides"]
     - show: "All-In Podcast"
-      url: ""
+      url: "https://allinchamathjason.libsyn.com/rss"
       keywords: ["Baker", "Gavin"]
     - show: "This Week in Startups"
-      url: ""
+      url: "https://anchor.fm/s/7c624c84/podcast/rss"
       keywords: ["Baker"]
     - show: "Capital Allocators"
-      url: ""
+      url: "https://tedseides.libsyn.com/rss"
       keywords: ["Baker", "Atreides"]
     - show: "a16z Podcast"
-      url: ""
+      url: "https://feeds.simplecast.com/JGE3yC0V"
       keywords: ["Baker"]
     - show: "BG2 Pod"
-      url: ""
+      url: "https://anchor.fm/s/f06c2370/podcast/rss"
       keywords: ["Baker"]
     - show: "Bankless / Limitless"
-      url: ""
+      url: "http://feeds.libsyn.com/247424/rss"
       keywords: ["Baker"]
     - show: "TBPN"
-      url: ""
+      url: "https://feeds.transistor.fm/technology-brother"
       keywords: ["Baker"]
     - show: "Generating Alpha"
-      url: ""
+      url: "https://anchor.fm/s/e79435d0/podcast/rss"
       keywords: ["Baker"]
+    - show: "Invested by Aleph"
+      url: "https://feeds.megaphone.fm/AMCL3368122371"
+      keywords: ["Baker", "Atreides"]
     - show: "Dwarkesh Podcast"
-      url: ""
+      url: "https://api.substack.com/feed/podcast/69345.rss"
       keywords: ["Leopold", "Aschenbrenner"]
     - show: "Lex Fridman"
       url: ""
