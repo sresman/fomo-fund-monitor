@@ -151,6 +151,18 @@ top-level. FLAG-CNBC-JS: the CNBC selectors + drop-query canonicalization are a
 best-guess needing LIVE validation. Next: Prompt 6 (orchestrator main.py +
 GitHub Actions + repository_dispatch bridge to celeb-pm).
 
+### Session addendum — 2026-08-10 (dev-infra + triage, no monitor-feature change)
+- **Config + dev-infra:** fixed a broken `known_channels` YAML indent in `config.yaml`
+  (file wasn't parsing) and populated YouTube known-channels + podcast RSS URLs (`e9233e2`).
+  Added `python-dotenv` + import-time `load_dotenv()` in `main.py`, `script/setup.sh`, and
+  confirmed `state/*.json` are **committed on purpose** (cron pushes dedupe state back — do
+  NOT gitignore) (`cf58a27`). Rebuilt the local `.venv` clean (was 3.11/3.14 split-brain).
+- **YouTube triage (fed celeb-pm):** classified 25 candidate video IDs (FULL/CLIP/COMMENTARY/
+  LEOPOLD). Operator confirmed 2 genuine new Baker appearances (`NGsi2PC4y68`, `MmNWwIYFBeI`)
+  → processed through the celeb-pm transcripts pipeline (v9). Triage output was conversational
+  (not persisted as a repo artifact).
+- All fomo changes committed + pushed to `main`.
+
 ---
 
 ## Active specs in use
