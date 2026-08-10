@@ -39,6 +39,14 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Callable, Mapping, Protocol, Sequence
 
+from dotenv import load_dotenv
+
+# Load a repo-root .env before any config/env reads (QoL for local runs).
+# load_dotenv() is quiet (no stdout/stderr, no network), so it preserves the
+# import-time invariants guarded by test_main_importable_no_side_effects and
+# test_import_main_pulls_no_network_stack.
+load_dotenv()
+
 import constants
 from config import AppConfig, load_config
 from dispatch_bridge import DispatchBridge, build_bridge_payload
