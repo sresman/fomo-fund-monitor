@@ -37,7 +37,15 @@
     "seeded:podcast:https://feeds.megaphone.fm/investlikethebest": "2026-08-09",
     "seeded:podcast:https://feeds.simplecast.com/JGE3yC0V": "2026-08-09",
     "seeded:podcast:https://feeds.transistor.fm/technology-brother": "2026-08-09",
-    "seeded:podcast:https://tedseides.libsyn.com/rss": "2026-08-09"
+    "seeded:podcast:https://tedseides.libsyn.com/rss": "2026-08-09",
+    "seeded:youtube:\"Atreides Management\" interview OR podcast": "2026-08-10",
+    "seeded:youtube:\"Gavin Baker\"": "2026-08-10",
+    "seeded:youtube:\"Gavin Baker\" Atreides": "2026-08-10",
+    "seeded:youtube:\"Gavin Baker\" semiconductors OR AI": "2026-08-10",
+    "seeded:youtube:\"Leopold Aschenbrenner\"": "2026-08-10",
+    "seeded:youtube:\"Leopold Aschenbrenner\" Situational Awareness": "2026-08-10",
+    "seeded:youtube:\"Situational Awareness\" AI OR AGI": "2026-08-10",
+    "youtube_sweep": "2026-08-10"
   },
   "rss_guids": [
     "c8fca7de-8f77-11f1-ae96-ab857574605f",
@@ -294,5 +302,33 @@
     "CBMivwFBVV95cUxPMmtfYzJzbW1HZXlyY2dGaGlqcEQwREVyY2d6NVBXYTdWSzNnZlBTb05jUDhfOTdySFBIR0FBRER1Q096dHEwYVk1alppRHRTWXRnQkVhdmhtZzk4eUI2RmwxbzVVQ3RPMThlU3huWGRCZ0tSenRMWDFEclBlNU1RTWxDUF9fSHhDU0t6dVhuWFRhUEdMdDIwVTRzYVpYUjhodUwxWG55Z2NQVTFoel82OTFrNU1zeXktV0ZYMUpTOA",
     "https://www.cnbc.com/investingclub/video"
   ],
-  "youtube": []
+  "youtube": [
+    "gnrOQs7ZcAk",
+    "V1QPXpxTROI",
+    "HKTRImylCx4",
+    "o_EMEjvrM0A",
+    "OEqu3v_EQXY",
+    "kJ7GK4-Y8JU",
+    "NGsi2PC4y68",
+    "DjW3LXJoqqU",
+    "eT2NIkXxaGk",
+    "86tTLwdujsE",
+    "FmLGYLQ6DFY",
+    "2Ryr95iiYNk",
+    "wOu5K4sy7DA",
+    "MmNWwIYFBeI",
+    "s44jiLf85fY",
+    "V_vV0NmTnz4",
+    "AT-sze8diNk",
+    "UqjfuPfhHvE",
+    "MBoXNiD5AzA",
+    "7RlOvsCLfWY",
+    "SyEmcuVqf4I",
+    "KoTfSJ1-_kc",
+    "UsTSMRJTpcs",
+    "WsDw9or9nC4",
+    "G_HAapdajrI",
+    "fu5a7y-Hvxg",
+    "SmIKZc3WuHQ"
+  ]
 }
