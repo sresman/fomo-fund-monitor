@@ -7,20 +7,34 @@ that channel disabled). ``dispatch_event`` formats via ``formatting``, looks up
 routing, resolves recipients from env AT SEND TIME (only for channels that will
 actually fire), and attempts each routed+enabled channel INDEPENDENTLY in a
 canonical EMAIL->SMS order. Both ``dispatch_event`` and ``dispatch_events``
-NEVER raise -- failures are reported in ``DispatchResult``.
+NEVER raise -- outcomes are reported in ``DispatchResult``.
 
 Fail-soft model: a per-channel failure is recorded in ``errors`` and does not
 suppress the other channel; a formatting/``build_alert`` failure is recorded in
-``event_error`` (no channels attempted); a routed channel whose sender is
-``None`` (disabled) is silently omitted -- NOT an error (see implementation
-notes for the operational significance).
+``event_error`` (no channels attempted).
+
+A routed channel resolves to exactly ONE of three outcomes, and the THREE-way
+split is load-bearing for the orchestrator's dedupe commit:
+
+  * SENT      -- listed in ``channels_sent``.
+  * SKIPPED   -- listed in ``channels_skipped`` with a reason in
+                 ``skipped_reasons``. Either the sender is ``None`` (channel
+                 disabled by construction) or the channel has no credentials /
+                 recipient configured (``AlertNotConfiguredError``). NOT counted
+                 as attempted and NOT an error: nothing was ever going to be
+                 sent, so treating it as a failure would block the dedupe commit
+                 forever and re-alert on an already-delivered channel.
+  * FAILED    -- listed in ``channels_attempted`` with the reason in ``errors``.
+                 The channel WAS configured, was tried, and the send failed.
+                 This is what holds back the commit so the event re-fires.
 """
 
 from dataclasses import dataclass
-from typing import Sequence
+from functools import partial
+from typing import Callable, Sequence
 
 from config import AppConfig
-from errors import AlertError
+from errors import AlertError, AlertNotConfiguredError
 from models import Alert, AlertChannel, DetectedEvent
 
 from alerting.email_alert import EmailSender
@@ -31,13 +45,22 @@ from alerting.sms_alert import SmsSender
 # Canonical, deterministic dispatch order (independent of config tuple order).
 _CHANNEL_ORDER: tuple[AlertChannel, ...] = (AlertChannel.EMAIL, AlertChannel.SMS)
 
+# Skip reason when the Dispatcher was constructed with no sender for a channel
+# (as opposed to a sender that exists but has no credentials configured).
+REASON_SENDER_DISABLED: str = "channel disabled (no sender configured)"
+
 
 @dataclass(frozen=True)
 class DispatchResult:
     event: DetectedEvent
+    # Channels that were configured and actually tried (sent OR failed).
     channels_attempted: tuple[AlertChannel, ...]
     channels_sent: tuple[AlertChannel, ...]
-    errors: dict[AlertChannel, str]  # empty dict = all attempted channels OK
+    # Routed but never tried: sender is None, or no credentials/recipient set.
+    channels_skipped: tuple[AlertChannel, ...]
+    errors: dict[AlertChannel, str]  # empty dict = all ATTEMPTED channels OK
+    # Why each skipped channel was skipped (never contains a credential value).
+    skipped_reasons: dict[AlertChannel, str]
     event_error: str | None  # non-channel failure (build_alert / formatting)
     skipped: bool  # True ONLY for dry-run
 
@@ -64,7 +87,9 @@ class Dispatcher:
                 event=event,
                 channels_attempted=(),
                 channels_sent=(),
+                channels_skipped=(),
                 errors={},
+                skipped_reasons={},
                 event_error=None,
                 skipped=True,
             )
@@ -76,7 +101,9 @@ class Dispatcher:
                 event=event,
                 channels_attempted=(),
                 channels_sent=(),
+                channels_skipped=(),
                 errors={},
+                skipped_reasons={},
                 event_error=str(exc),
                 skipped=False,
             )
@@ -84,45 +111,64 @@ class Dispatcher:
         routed = frozenset(alert.channels)
         attempted: list[AlertChannel] = []
         sent: list[AlertChannel] = []
+        channels_skipped: list[AlertChannel] = []
         errors: dict[AlertChannel, str] = {}
+        skipped_reasons: dict[AlertChannel, str] = {}
 
         for channel in _CHANNEL_ORDER:
             if channel not in routed:
                 continue
-            # Each channel handled in its own isolated try/except so one
-            # channel's failure never suppresses the other. A routed channel
-            # whose sender is None (disabled) is silently omitted (not attempted,
-            # not an error). Unknown channels never appear in _CHANNEL_ORDER.
+            # Bind this channel's send as a zero-arg callable, or skip it when
+            # the Dispatcher holds no sender for it. Unknown channels never
+            # appear in _CHANNEL_ORDER, so the else-branch is exhaustive.
+            send: Callable[[], None]
             if channel is AlertChannel.EMAIL:
-                if self._email_sender is None:
+                email_sender = self._email_sender
+                if email_sender is None:
+                    channels_skipped.append(channel)
+                    skipped_reasons[channel] = REASON_SENDER_DISABLED
                     continue
-                attempted.append(channel)
-                try:
-                    self._send_email(self._email_sender, alert, config)
-                except AlertError as exc:
-                    errors[channel] = str(exc)
-                except Exception as exc:  # noqa: BLE001 -- stray-error backstop
-                    errors[channel] = str(exc)
-                else:
-                    sent.append(channel)
-            elif channel is AlertChannel.SMS:
-                if self._sms_sender is None:
+                send = partial(self._send_email, email_sender, alert, config)
+            else:
+                sms_sender = self._sms_sender
+                if sms_sender is None:
+                    channels_skipped.append(channel)
+                    skipped_reasons[channel] = REASON_SENDER_DISABLED
                     continue
+                send = partial(self._send_sms, sms_sender, event, config)
+
+            # Each channel is isolated so one channel's failure never suppresses
+            # the other. AlertNotConfiguredError is caught FIRST (it subclasses
+            # AlertError) and routed to SKIPPED, not to errors -- see the module
+            # docstring for why that distinction matters to the dedupe commit.
+            not_configured: str | None = None
+            failure: str | None = None
+            try:
+                send()
+            except AlertNotConfiguredError as exc:
+                not_configured = str(exc)
+            except AlertError as exc:
+                failure = str(exc)
+            except Exception as exc:  # noqa: BLE001 -- stray-error backstop
+                failure = str(exc)
+
+            if not_configured is not None:
+                channels_skipped.append(channel)
+                skipped_reasons[channel] = not_configured
+            elif failure is not None:
                 attempted.append(channel)
-                try:
-                    self._send_sms(self._sms_sender, event, config)
-                except AlertError as exc:
-                    errors[channel] = str(exc)
-                except Exception as exc:  # noqa: BLE001 -- stray-error backstop
-                    errors[channel] = str(exc)
-                else:
-                    sent.append(channel)
+                errors[channel] = failure
+            else:
+                attempted.append(channel)
+                sent.append(channel)
 
         return DispatchResult(
             event=event,
             channels_attempted=tuple(attempted),
             channels_sent=tuple(sent),
+            channels_skipped=tuple(channels_skipped),
             errors=errors,
+            skipped_reasons=skipped_reasons,
             event_error=None,
             skipped=False,
         )
@@ -143,7 +189,9 @@ class Dispatcher:
                         event=event,
                         channels_attempted=(),
                         channels_sent=(),
+                        channels_skipped=(),
                         errors={},
+                        skipped_reasons={},
                         event_error=str(exc),
                         skipped=False,
                     )
@@ -153,7 +201,8 @@ class Dispatcher:
     # -- internals -------------------------------------------------------- #
     # Recipient env resolution happens HERE, only for a firing channel, so an
     # email-only routing never requires ALERT_PHONE. A missing recipient raises
-    # AlertError, caught by the per-channel handler above.
+    # AlertNotConfiguredError -> that channel is SKIPPED (not failed) by the
+    # per-channel handler above.
 
     @staticmethod
     def _send_email(

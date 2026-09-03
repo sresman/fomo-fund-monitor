@@ -8,6 +8,10 @@ Leaf module: imports nothing from the app so ``config.py`` and
 ``ConfigError`` and ``StateError`` are two DISTINCT direct subclasses of
 ``Exception``. Neither inherits the other, so callers can catch them
 independently.
+
+The one deliberate hierarchy is ``AlertNotConfiguredError(AlertError)`` -- see
+its docstring for why a not-configured channel must be distinguishable from a
+failed one.
 """
 
 
@@ -29,6 +33,25 @@ class AlertError(Exception):
     A distinct direct subclass of ``Exception`` (parallel to ``ConfigError`` /
     ``StateError``); it inherits neither, so callers can catch it independently.
     Sender messages are sanitized and never contain credential values."""
+
+
+class AlertNotConfiguredError(AlertError):
+    """Raised when a routed alert channel has no credentials/recipient set.
+
+    A SUBCLASS of ``AlertError`` (so any existing ``except AlertError`` still
+    catches it), raised only by ``alerting.env`` when a required env var is
+    absent or whitespace-only. It means "this channel was never going to send",
+    which is operationally different from "this channel tried and failed":
+
+      * NOT configured -> the channel is SKIPPED. It does not count as a
+        delivery failure and must not hold back the dedupe commit, or an
+        unconfigured optional channel (e.g. SMS with no Twilio secrets) would
+        re-alert an already-delivered email forever.
+      * Configured and failed -> a genuine ``AlertError``, recorded in
+        ``DispatchResult.errors``, which DOES hold back the commit so the event
+        re-fires next run.
+
+    Never carries a credential VALUE -- only the missing var NAME(s)."""
 
 
 class MonitorError(Exception):

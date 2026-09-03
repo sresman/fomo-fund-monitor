@@ -9,7 +9,8 @@ from datetime import datetime, timezone
 
 import pytest
 
-from alerting.dispatch import Dispatcher, DispatchResult
+from alerting.dispatch import REASON_SENDER_DISABLED, Dispatcher, DispatchResult
+from alerting.sms_alert import TwilioSender
 from config import AppConfig, load_config
 from errors import AlertError
 from models import AlertChannel, Confidence, DetectedEvent, EventType, Priority
@@ -138,24 +139,62 @@ def test_sms_succeeds_email_fails(
     assert sms.calls
 
 
-def test_missing_email_recipient_does_not_abort_sms(
+def test_missing_email_recipient_is_skipped_not_failed(
     config: AppConfig, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """An unset recipient env var means the channel was never configured: it is
+    SKIPPED (with a reason), NOT recorded as a delivery failure, and the other
+    routed channel still fires."""
     monkeypatch.delenv("ALERT_EMAIL", raising=False)
     monkeypatch.setenv("ALERT_PHONE", "+15559998888")
     cfg = _config_with_routing(config, (AlertChannel.EMAIL, AlertChannel.SMS))
     email, sms = FakeEmailSender(), FakeSmsSender()
     result = Dispatcher(email, sms).dispatch_event(make_event(), cfg)
-    assert AlertChannel.EMAIL in result.errors
-    assert "ALERT_EMAIL" in result.errors[AlertChannel.EMAIL]
+    assert AlertChannel.EMAIL not in result.errors
+    assert AlertChannel.EMAIL not in result.channels_attempted
+    assert AlertChannel.EMAIL in result.channels_skipped
+    assert "ALERT_EMAIL" in result.skipped_reasons[AlertChannel.EMAIL]
     assert AlertChannel.SMS in result.channels_sent
     assert email.calls == []  # sender never invoked (recipient resolution failed)
 
 
-def test_disabled_sender_silently_dropped(
+def test_missing_sms_credentials_do_not_block_delivered_email(
     config: AppConfig, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    # Email routed but sender=None -> absent, not an error; SMS fires.
+    """The production case: email fully configured and delivered, Twilio secrets
+    absent. SMS must be skipped rather than failed, leaving ``errors`` empty so
+    the orchestrator can commit dedupe state instead of re-alerting forever."""
+    monkeypatch.setenv("ALERT_EMAIL", "to@example.com")
+    monkeypatch.setenv("ALERT_PHONE", "+15559998888")
+    for var in ("TWILIO_SID", "TWILIO_AUTH", "TWILIO_FROM"):
+        monkeypatch.delenv(var, raising=False)
+    cfg = _config_with_routing(config, (AlertChannel.EMAIL, AlertChannel.SMS))
+    email = FakeEmailSender()
+    result = Dispatcher(email, TwilioSender()).dispatch_event(make_event(), cfg)
+    assert result.channels_sent == (AlertChannel.EMAIL,)
+    assert result.channels_skipped == (AlertChannel.SMS,)
+    assert result.errors == {}
+    assert "TWILIO_SID" in result.skipped_reasons[AlertChannel.SMS]
+
+
+def test_configured_channel_that_fails_is_an_error_not_a_skip(
+    config: AppConfig, env_recipients: None
+) -> None:
+    """Contrast with the two tests above: credentials ARE set, the send itself
+    fails. That is a genuine failure and must land in ``errors``."""
+    cfg = _config_with_routing(config, (AlertChannel.EMAIL, AlertChannel.SMS))
+    email = FakeEmailSender(fail=True)
+    result = Dispatcher(email, FakeSmsSender()).dispatch_event(make_event(), cfg)
+    assert result.errors == {AlertChannel.EMAIL: "email send failed"}
+    assert result.channels_skipped == ()
+    assert AlertChannel.EMAIL in result.channels_attempted
+    assert result.channels_sent == (AlertChannel.SMS,)
+
+
+def test_disabled_sender_is_skipped_with_a_reason(
+    config: AppConfig, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Email routed but sender=None -> skipped (not attempted, not an error).
     monkeypatch.setenv("ALERT_PHONE", "+15559998888")
     monkeypatch.delenv("ALERT_EMAIL", raising=False)  # must not be needed
     cfg = _config_with_routing(config, (AlertChannel.EMAIL, AlertChannel.SMS))
@@ -163,6 +202,8 @@ def test_disabled_sender_silently_dropped(
     result = Dispatcher(None, sms).dispatch_event(make_event(), cfg)
     assert AlertChannel.EMAIL not in result.channels_attempted
     assert AlertChannel.EMAIL not in result.errors
+    assert result.channels_skipped == (AlertChannel.EMAIL,)
+    assert result.skipped_reasons[AlertChannel.EMAIL] == REASON_SENDER_DISABLED
     assert result.channels_sent == (AlertChannel.SMS,)
 
 
@@ -268,7 +309,9 @@ def test_result_is_frozen() -> None:
         event=make_event(),
         channels_attempted=(),
         channels_sent=(),
+        channels_skipped=(),
         errors={},
+        skipped_reasons={},
         event_error=None,
         skipped=True,
     )

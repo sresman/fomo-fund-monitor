@@ -25,7 +25,7 @@ import pytest
 import main
 from config import AppConfig, load_config
 from errors import DispatchBridgeAuthError, DispatchBridgeError, StateError
-from main import MonitorSpec, build_monitor_specs, run
+from main import MonitorSpec, alert_delivered, build_monitor_specs, run
 from models import (
     AlertChannel,
     Confidence,
@@ -80,17 +80,32 @@ def make_event(
 
 
 class FakeResult:
-    """Duck-types DispatchResultLike (reads: errors, event_error)."""
+    """Duck-types DispatchResultLike.
+
+    Defaults to the healthy case -- delivered on EMAIL, nothing skipped, no
+    errors -- so existing tests that only care about errors/event_error keep
+    reading as "the alert went out".
+    """
 
     def __init__(
         self,
         event: DetectedEvent,
         errors: dict[AlertChannel, str] | None = None,
         event_error: str | None = None,
+        channels_sent: tuple[AlertChannel, ...] | None = None,
+        channels_skipped: tuple[AlertChannel, ...] = (),
+        skipped_reasons: dict[AlertChannel, str] | None = None,
     ) -> None:
         self.event = event
         self.errors: dict[AlertChannel, str] = errors or {}
         self.event_error = event_error
+        # No explicit channels_sent => delivered on EMAIL iff nothing went wrong.
+        if channels_sent is None:
+            healthy = not self.errors and event_error is None
+            channels_sent = (AlertChannel.EMAIL,) if healthy else ()
+        self.channels_sent: tuple[AlertChannel, ...] = channels_sent
+        self.channels_skipped: tuple[AlertChannel, ...] = channels_skipped
+        self.skipped_reasons: dict[AlertChannel, str] = skipped_reasons or {}
 
 
 def make_result(
@@ -98,8 +113,18 @@ def make_result(
     *,
     errors: dict[AlertChannel, str] | None = None,
     event_error: str | None = None,
+    channels_sent: tuple[AlertChannel, ...] | None = None,
+    channels_skipped: tuple[AlertChannel, ...] = (),
+    skipped_reasons: dict[AlertChannel, str] | None = None,
 ) -> FakeResult:
-    return FakeResult(event, errors=errors, event_error=event_error)
+    return FakeResult(
+        event,
+        errors=errors,
+        event_error=event_error,
+        channels_sent=channels_sent,
+        channels_skipped=channels_skipped,
+        skipped_reasons=skipped_reasons,
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -159,21 +184,38 @@ class FakeStore:
 
 
 class FakeDispatcher:
-    """DispatcherLike: returns one make_result per event; per-event errors can be
-    scripted by identifier."""
+    """DispatcherLike: returns one make_result per event. Per-event errors,
+    skipped channels and delivered channels can all be scripted by identifier."""
 
-    def __init__(self, errors_by_id: dict[str, dict[AlertChannel, str]] | None = None) -> None:
+    def __init__(
+        self,
+        errors_by_id: dict[str, dict[AlertChannel, str]] | None = None,
+        *,
+        skipped_by_id: dict[str, dict[AlertChannel, str]] | None = None,
+        sent_by_id: dict[str, tuple[AlertChannel, ...]] | None = None,
+    ) -> None:
         self._errors_by_id = errors_by_id or {}
+        self._skipped_by_id = skipped_by_id or {}
+        self._sent_by_id = sent_by_id or {}
         self.dispatched: list[DetectedEvent] = []
 
     def dispatch_events(
         self, events: Sequence[DetectedEvent], config: AppConfig
     ) -> Sequence[FakeResult]:
         self.dispatched.extend(events)
-        return [
-            make_result(e, errors=self._errors_by_id.get(e.identifier))
-            for e in events
-        ]
+        results: list[FakeResult] = []
+        for e in events:
+            skipped = self._skipped_by_id.get(e.identifier, {})
+            results.append(
+                make_result(
+                    e,
+                    errors=self._errors_by_id.get(e.identifier),
+                    channels_sent=self._sent_by_id.get(e.identifier),
+                    channels_skipped=tuple(skipped),
+                    skipped_reasons=dict(skipped) or None,
+                )
+            )
+        return results
 
 
 class FakeBridge:
@@ -329,6 +371,115 @@ def test_failed_alert_nonretryable_still_commits() -> None:
     rc = _run(store=store, dispatcher=dispatcher, monitors=[spec])
     assert rc == 0
     assert commit_log == [("conference_pages", "e1")]
+
+
+# --------------------------------------------------------------------------- #
+# configured-vs-unconfigured channels (commit gating)
+#
+# An unconfigured OPTIONAL channel must not block the dedupe commit. Before this
+# distinction existed, `alert_ok` required EVERY routed channel to succeed, so
+# SMS with no Twilio secrets held back the commit on an event whose email had
+# already been delivered -- re-alerting the same event on every subsequent run.
+# --------------------------------------------------------------------------- #
+
+
+def test_unconfigured_channel_does_not_block_commit() -> None:
+    """Email delivered, SMS routed but unconfigured -> COMMIT (no re-alert)."""
+    commit_log: list[tuple[str, str]] = []
+    ev = make_event(identifier="e1")
+    store = FakeStore()
+    dispatcher = FakeDispatcher(
+        skipped_by_id={
+            "e1": {AlertChannel.SMS: "missing required environment variable(s): TWILIO_SID"}
+        },
+        sent_by_id={"e1": (AlertChannel.EMAIL,)},
+    )
+    spec = _spec(MonitorName.EDGAR, [ev], commit_log=commit_log, retryable=True)
+    rc = _run(store=store, dispatcher=dispatcher, monitors=[spec])
+    assert rc == 0
+    assert commit_log == [("edgar", "e1")]
+
+
+def test_configured_channel_failure_still_blocks_commit() -> None:
+    """Contrast: the channel WAS configured and the send failed -> no commit."""
+    commit_log: list[tuple[str, str]] = []
+    ev = make_event(identifier="e1")
+    store = FakeStore()
+    dispatcher = FakeDispatcher(
+        errors_by_id={"e1": {AlertChannel.EMAIL: "email send failed"}},
+        sent_by_id={"e1": (AlertChannel.SMS,)},
+    )
+    spec = _spec(MonitorName.EDGAR, [ev], commit_log=commit_log, retryable=True)
+    rc = _run(store=store, dispatcher=dispatcher, monitors=[spec])
+    assert rc == 0
+    assert commit_log == []
+
+
+def test_all_channels_unconfigured_does_not_commit() -> None:
+    """Nothing was delivered at all. Committing would mark the event seen with
+    no one ever told, losing it permanently -- so it must NOT commit."""
+    commit_log: list[tuple[str, str]] = []
+    ev = make_event(identifier="e1")
+    store = FakeStore()
+    dispatcher = FakeDispatcher(
+        skipped_by_id={
+            "e1": {
+                AlertChannel.EMAIL: "missing required environment variable(s): GMAIL_USER",
+                AlertChannel.SMS: "missing required environment variable(s): TWILIO_SID",
+            }
+        },
+        sent_by_id={"e1": ()},
+    )
+    spec = _spec(MonitorName.EDGAR, [ev], commit_log=commit_log, retryable=True)
+    rc = _run(store=store, dispatcher=dispatcher, monitors=[spec])
+    assert rc == 0
+    assert commit_log == []
+
+
+def test_unconfigured_channel_logged_once_per_channel_not_per_event(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """115 google_news events with SMS unconfigured must produce ONE warning,
+    naming the channel and the event count -- not 115 identical lines."""
+    events = [make_event(identifier=f"e{i}") for i in range(5)]
+    skipped = {
+        e.identifier: {
+            AlertChannel.SMS: "missing required environment variable(s): TWILIO_SID"
+        }
+        for e in events
+    }
+    store = FakeStore()
+    dispatcher = FakeDispatcher(
+        skipped_by_id=skipped,
+        sent_by_id={e.identifier: (AlertChannel.EMAIL,) for e in events},
+    )
+    spec = _spec(MonitorName.GOOGLE_NEWS, events, commit_log=[])
+    with caplog.at_level(logging.WARNING, logger="fomo_monitor"):
+        _run(store=store, dispatcher=dispatcher, monitors=[spec])
+    lines = [r.getMessage() for r in caplog.records if "not configured" in r.message]
+    assert len(lines) == 1
+    assert "sms" in lines[0]
+    assert "5 event(s)" in lines[0]
+    assert "TWILIO_SID" in lines[0]
+
+
+def test_alert_delivered_predicate() -> None:
+    """Unit-level truth table for the commit predicate."""
+    ev = make_event(identifier="e1")
+    # Delivered on one channel, other skipped -> OK.
+    assert alert_delivered(
+        make_result(ev, channels_sent=(AlertChannel.EMAIL,),
+                    channels_skipped=(AlertChannel.SMS,))
+    )
+    # A configured channel failed -> not OK, even though another delivered.
+    assert not alert_delivered(
+        make_result(ev, errors={AlertChannel.EMAIL: "boom"},
+                    channels_sent=(AlertChannel.SMS,))
+    )
+    # Nothing delivered -> not OK.
+    assert not alert_delivered(make_result(ev, channels_sent=()))
+    # Formatting failure -> not OK.
+    assert not alert_delivered(make_result(ev, event_error="bad format"))
 
 
 # --------------------------------------------------------------------------- #

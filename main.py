@@ -14,6 +14,10 @@ Design rules honored here:
     the orchestrator is timing-agnostic beyond ``now`` and interval gating.
   * Commit-after-dispatch (Option B monitors): an event is marked seen ONLY
     after its alert dispatch succeeds, so a failed alert re-fires next run.
+    "Succeeds" means at least one channel DELIVERED and no CONFIGURED channel
+    failed -- a routed channel with no credentials set is skipped, not failed,
+    so an unconfigured optional channel cannot block the commit and re-alert
+    forever on a channel that already delivered (see ``alert_delivered``).
     Option A monitors (conference_pages, website_diff page-hash) persist their
     own state inside the monitor; the orchestrator does NOT re-commit them.
   * Fail-soft: one monitor's failure never aborts the others; a bridge failure
@@ -93,15 +97,50 @@ class StoreLike(Protocol):
 
 
 class DispatchResultLike(Protocol):
-    """The subset of ``DispatchResult`` the orchestrator reads. ``errors`` is
-    read-only truthiness (any non-empty per-channel error map => the alert did
-    not cleanly dispatch)."""
+    """The subset of ``DispatchResult`` the orchestrator reads.
+
+    ``errors`` holds ONLY genuine send failures on channels that were configured
+    and tried. A routed channel with no credentials/recipient set lands in
+    ``channels_skipped`` / ``skipped_reasons`` instead, and never in ``errors``.
+    ``channels_sent`` is what proves the alert actually reached someone."""
+
+    @property
+    def channels_sent(self) -> Sequence[AlertChannel]: ...
+
+    @property
+    def channels_skipped(self) -> Sequence[AlertChannel]: ...
 
     @property
     def errors(self) -> Mapping[AlertChannel, str]: ...
 
     @property
+    def skipped_reasons(self) -> Mapping[AlertChannel, str]: ...
+
+    @property
     def event_error(self) -> str | None: ...
+
+
+def alert_delivered(result: DispatchResultLike) -> bool:
+    """True when an event's alert cleanly reached at least one channel.
+
+    Three conditions, ALL required:
+
+    1. No event-level failure (``build_alert`` / formatting).
+    2. No genuine send failure on a CONFIGURED channel. A routed channel that is
+       merely unconfigured is SKIPPED, not failed -- so an absent optional
+       channel (e.g. SMS with no Twilio secrets) never blocks the dedupe commit
+       and never causes indefinite re-alerting on an already-delivered email.
+    3. At least one channel actually delivered. If EVERY routed channel was
+       skipped, nothing was sent; committing would mark the event seen without
+       anyone ever having been told, losing the alert permanently. That case is
+       an alerting-layer outage, not a per-event condition, and is deliberately
+       treated as NOT delivered so the event re-fires once alerting is fixed.
+    """
+    if result.event_error is not None:
+        return False
+    if result.errors:
+        return False
+    return bool(result.channels_sent)
 
 
 class DispatcherLike(Protocol):
@@ -358,9 +397,19 @@ def _process_monitor(
             return
 
         results = dispatcher.dispatch_events(events, config)
+        # Routed-but-unconfigured channels are aggregated across the batch and
+        # reported ONCE per channel below -- per-event logging would emit one
+        # identical line per event (115 for a single google_news run).
+        skipped_counts: dict[AlertChannel, int] = {}
+        skipped_reason: dict[AlertChannel, str] = {}
         # dispatch_events returns one result per event, same order/length.
         for event, result in zip(events, results):
-            alert_ok = result.event_error is None and not result.errors
+            for channel in result.channels_skipped:
+                skipped_counts[channel] = skipped_counts.get(channel, 0) + 1
+                skipped_reason.setdefault(
+                    channel, result.skipped_reasons.get(channel, "unknown")
+                )
+            alert_ok = alert_delivered(result)
             if alert_ok or not spec.retryable(event):
                 # Commit when the alert cleanly dispatched, OR when the event is
                 # one-shot (Option A / undefined shape): re-firing would never
@@ -385,6 +434,16 @@ def _process_monitor(
                     name,
                     event.identifier,
                 )
+
+        for channel in sorted(skipped_counts, key=lambda c: c.value):
+            logger.warning(
+                "monitor %s: alert channel %s not configured; skipped for "
+                "%d event(s) (%s). Other routed channels still delivered.",
+                name,
+                channel.value,
+                skipped_counts[channel],
+                skipped_reason[channel],
+            )
     except StateError as exc:
         logger.error("monitor %s: state error, skipping this monitor: %s", name, exc)
     except Exception as exc:  # noqa: BLE001 -- one monitor never aborts the rest

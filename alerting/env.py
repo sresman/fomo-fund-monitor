@@ -5,10 +5,17 @@ from __future__ import annotations
 Reads Gmail / Twilio / recipient env vars from ``os.environ`` **at send time**
 (never at import time). All returned values are ``.strip()``'d; a whitespace-only
 value is treated as MISSING. When one or more required vars are missing, a single
-``AlertError`` naming every missing var (in the requested order) is raised.
+``AlertNotConfiguredError`` naming every missing var (in the requested order) is
+raised.
 
 No shape/format validation (no E.164, no email regex) -- presence + non-empty
 only; correctness is delegated to SMTP / Twilio at send time.
+
+The raised type is ``AlertNotConfiguredError`` (an ``AlertError`` subclass), NOT
+a plain ``AlertError``: "no credentials set" means the channel was never going
+to send and must be SKIPPED by the dispatcher, whereas a channel that is
+configured and then fails is a genuine delivery failure. Only the missing var
+NAMES are reported -- never a value.
 """
 
 import os
@@ -21,7 +28,7 @@ from constants import (
     ENV_TWILIO_FROM,
     ENV_TWILIO_SID,
 )
-from errors import AlertError
+from errors import AlertNotConfiguredError
 
 
 @dataclass(frozen=True)
@@ -47,7 +54,7 @@ def _require_env(names: tuple[str, ...]) -> dict[str, str]:
     A value is MISSING if the key is absent OR strips to empty (whitespace-only
     ⇒ missing). Present values are returned ``.strip()``'d. ALL missing names are
     collected in the SAME ORDER they were requested and reported in ONE
-    ``AlertError``. Never reads env at import time.
+    ``AlertNotConfiguredError``. Never reads env at import time.
     """
     resolved: dict[str, str] = {}
     missing: list[str] = []
@@ -62,15 +69,15 @@ def _require_env(names: tuple[str, ...]) -> dict[str, str]:
             continue
         resolved[name] = stripped
     if missing:
-        raise AlertError(
+        raise AlertNotConfiguredError(
             "missing required environment variable(s): " + ", ".join(missing)
         )
     return resolved
 
 
 def resolve_email_credentials() -> EmailCredentials:
-    """Resolve Gmail credentials from env (stripped). Raises ``AlertError``
-    listing all missing vars."""
+    """Resolve Gmail credentials from env (stripped). Raises
+    ``AlertNotConfiguredError`` listing all missing vars."""
     env = _require_env((ENV_GMAIL_USER, ENV_GMAIL_APP_PASSWORD))
     return EmailCredentials(
         user=env[ENV_GMAIL_USER],
@@ -79,8 +86,8 @@ def resolve_email_credentials() -> EmailCredentials:
 
 
 def resolve_sms_credentials() -> SmsCredentials:
-    """Resolve Twilio credentials from env (stripped). Raises ``AlertError``
-    listing all missing vars."""
+    """Resolve Twilio credentials from env (stripped). Raises
+    ``AlertNotConfiguredError`` listing all missing vars."""
     env = _require_env((ENV_TWILIO_SID, ENV_TWILIO_AUTH, ENV_TWILIO_FROM))
     return SmsCredentials(
         sid=env[ENV_TWILIO_SID],
@@ -91,5 +98,6 @@ def resolve_sms_credentials() -> SmsCredentials:
 
 def resolve_recipient(env_name: str) -> str:
     """Resolve a single recipient env var (e.g. ``ALERT_EMAIL`` / ``ALERT_PHONE``)
-    from env, stripped. Raises ``AlertError`` if absent or whitespace-only."""
+    from env, stripped. Raises ``AlertNotConfiguredError`` if absent or
+    whitespace-only."""
     return _require_env((env_name,))[env_name]
