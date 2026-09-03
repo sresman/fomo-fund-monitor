@@ -167,18 +167,30 @@ website_diff:
 # Keys are EventType values (parsed into EventType members by the loader).
 # MUST cover EXACTLY every EventType member — missing OR unknown key => ConfigError.
 # Each maps to the channels to fire (validated against AlertChannel).
+#
+# SMS IS DELIBERATELY UNROUTED (2026-09-03). The Twilio secrets are not set and
+# are not going to be. Six of these rows previously read ["email", "sms"]:
+# filing_13f, filing_sc13, youtube_high, podcast_rss, cnbc_video, leopold_post.
+# The alerting layer would treat the missing credentials as "channel not
+# configured" and skip it harmlessly, but leaving the route in place would keep
+# emitting a skip warning every run for a channel that will never fire. Removing
+# it means TwilioSender is never constructed or called at all.
+#
+# To re-enable SMS: add "sms" back to the rows above AND set TWILIO_SID,
+# TWILIO_AUTH, TWILIO_FROM and ALERT_PHONE as repository secrets. Nothing else
+# needs to change — the sender and its routing code are untouched and tested.
 alert_routing:
-  filing_13f:        ["email", "sms"]
-  filing_sc13:       ["email", "sms"]
+  filing_13f:        ["email"]
+  filing_sc13:       ["email"]
   filing_form4:      ["email"]
   filing_other:      ["email"]
-  youtube_high:      ["email", "sms"]
+  youtube_high:      ["email"]
   youtube_medium:    ["email"]
-  podcast_rss:       ["email", "sms"]
+  podcast_rss:       ["email"]
   google_news:       ["email"]
-  cnbc_video:        ["email", "sms"]
+  cnbc_video:        ["email"]
   conference_change: ["email"]
-  leopold_post:      ["email", "sms"]
+  leopold_post:      ["email"]
   website_diff:      ["email"]
 
 # ---- Alert recipient references (env var NAMES, not values) ----

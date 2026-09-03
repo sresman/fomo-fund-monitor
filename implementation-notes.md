@@ -392,3 +392,28 @@ Also documented in the README: the `--replay-since` / `--dry-run` / `--monitor` 
 `--limit` CLI, the heartbeat, and the empty-string-secret behaviour (an unset
 Actions secret arrives as `""`, which the alerting layer now reads as "channel
 not configured" and skips rather than failing).
+
+---
+
+## 2026-09-03 — Commit 8: unroute SMS
+
+**Operator decision.** The Twilio secrets are unset and will stay unset. Six
+routing rows (`filing_13f`, `filing_sc13`, `youtube_high`, `podcast_rss`,
+`cnbc_video`, `leopold_post`) dropped from `["email", "sms"]` to `["email"]`.
+
+**Why remove the route rather than rely on the skip path.** Commit 2 already
+makes an unconfigured channel harmless — it is skipped, the email still
+delivers, and the event still commits. But a routed-and-skipped channel emits a
+WARNING once per monitor per run naming the missing vars, forever, for a channel
+that is never going to fire. That is exactly the kind of permanent, ignorable
+warning that trains an operator to stop reading logs. Removing the route means
+`TwilioSender` is never constructed or called and nothing is logged.
+
+**Nothing in the alerting layer changed.** `TwilioSender`, `resolve_sms_credentials`,
+the SMS branch of the dispatcher and all their tests are untouched and still
+pass. Re-enabling is a config edit plus four secrets; the comment in
+`config.yaml` says so at the point of change.
+
+**Effect on the current backlog.** The 2 EDGAR + 7 podcast events that had been
+failing on SMS and re-alerting every run will now dispatch email-only, succeed,
+and commit — ending the duplicate loop.
