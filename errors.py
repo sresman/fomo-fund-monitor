@@ -54,6 +54,21 @@ class AlertNotConfiguredError(AlertError):
     Never carries a credential VALUE -- only the missing var NAME(s)."""
 
 
+class AlertDeliveryError(Exception):
+    """Raised at the END of a run when one or more alerts failed to deliver.
+
+    Deliberately NOT an ``AlertError`` subclass: it is a run-level summary, not a
+    per-send fault, and must not be swallowed by any ``except AlertError`` arm in
+    the alerting layer.
+
+    ``run()`` raises this AFTER every monitor has had its turn, so per-monitor
+    fail-soft isolation is preserved (one bad monitor still never aborts the
+    others) while the process still exits non-zero. A non-zero exit is what makes
+    GitHub Actions' own failure notification a backstop for a silent alerting
+    outage. The message carries a bounded sample of the failures; the full set is
+    already in the log, one ERROR line per event."""
+
+
 class MonitorError(Exception):
     """Raised when a monitor's data source is unreachable, times out, or returns
     malformed/unparseable data.

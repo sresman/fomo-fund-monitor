@@ -133,7 +133,9 @@ def test_module_not_found_maps_to_not_installed() -> None:
         TwilioSender(creds=_CREDS, client_factory=_factory).send(
             "hi", "+15559998888"
         )
-    assert str(excinfo.value) == "twilio not installed"
+    # Message names the cause's class so the reason survives the wrap.
+    assert str(excinfo.value).startswith("twilio not installed: ")
+    assert "ModuleNotFoundError" in str(excinfo.value)
     assert isinstance(excinfo.value.__cause__, ModuleNotFoundError)
 
 

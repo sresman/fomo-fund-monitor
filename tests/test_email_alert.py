@@ -12,7 +12,12 @@ import pytest
 from alerting import email_alert
 from alerting.email_alert import GmailSender
 from alerting.env import EmailCredentials
-from constants import GMAIL_SMTP_HOST, GMAIL_SMTP_PORT, SMTP_TIMEOUT_SECONDS
+from constants import (
+    GMAIL_SMTP_HOST,
+    GMAIL_SMTP_PORT,
+    REDACTED_PLACEHOLDER,
+    SMTP_TIMEOUT_SECONDS,
+)
 from errors import AlertError
 
 _CREDS = EmailCredentials(user="me@example.com", app_password="secretpw")
@@ -105,6 +110,53 @@ def test_os_error_wrapped(monkeypatch: pytest.MonkeyPatch) -> None:
     with pytest.raises(AlertError) as excinfo:
         GmailSender(creds=_CREDS).send("s", "b", "to@example.com")
     assert isinstance(excinfo.value.__cause__, OSError)
+
+
+def test_failure_message_names_the_underlying_exception_class(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The reason must survive the AlertError wrap. Previously the wrapper was
+    the bare string "email send failed" and the cause lived only on __cause__,
+    which the orchestrator never read -- so a 20-day auth outage was
+    indistinguishable from a transient DNS blip."""
+    def _factory(*a: object, **k: object) -> _FakeSMTP:
+        raise smtplib.SMTPAuthenticationError(
+            535, b"5.7.8 Username and Password not accepted"
+        )
+
+    monkeypatch.setattr(smtplib, "SMTP_SSL", _factory)
+    with pytest.raises(AlertError) as excinfo:
+        GmailSender(creds=_CREDS).send("s", "b", "to@example.com")
+    message = str(excinfo.value)
+    assert message.startswith("email send failed: ")
+    assert "SMTPAuthenticationError" in message
+    assert "535" in message
+    assert isinstance(excinfo.value.__cause__, smtplib.SMTPAuthenticationError)
+
+
+@pytest.mark.parametrize(
+    ("secret", "label"),
+    [
+        ("secretpw", "app password"),
+        ("me@example.com", "gmail user"),
+        ("to@example.com", "recipient"),
+    ],
+)
+def test_failure_message_never_leaks_a_credential(
+    monkeypatch: pytest.MonkeyPatch, secret: str, label: str
+) -> None:
+    """Every value SMTP could echo back is redacted -- credentials AND the
+    recipient address, which is itself a deployment secret."""
+    def _factory(*a: object, **k: object) -> _FakeSMTP:
+        raise smtplib.SMTPDataError(550, f"rejected: {secret}".encode())
+
+    monkeypatch.setattr(smtplib, "SMTP_SSL", _factory)
+    with pytest.raises(AlertError) as excinfo:
+        GmailSender(creds=_CREDS).send("s", "b", "to@example.com")
+    message = str(excinfo.value)
+    assert secret not in message, f"{label} leaked into the error message"
+    assert REDACTED_PLACEHOLDER in message
+    assert "SMTPDataError" in message  # ... but the class still survives
 
 
 def test_missing_env_raises_alert_error(monkeypatch: pytest.MonkeyPatch) -> None:

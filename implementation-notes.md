@@ -106,3 +106,68 @@ without constructing a run.
 **Not changed.** Per-channel fail-soft isolation inside `dispatch.py` is intact;
 one channel's failure still never suppresses the other, and `dispatch_event` /
 `dispatch_events` still never raise.
+
+---
+
+## 2026-09-03 — Commit 3: fail loud, with the reason preserved
+
+**Problem, both halves.** (a) The senders wrapped every transport exception in a
+constant-string `AlertError("email send failed")`; the cause survived only on
+`__cause__`. (b) `main.py` read `result.errors` for truthiness only and logged a
+content-free `"alert failed for <id>"`, then returned 0. Net result: a 20-day
+total alerting outage was indistinguishable from a transient blip, on runs
+GitHub reported as successful.
+
+**Decision SD-A9 — a dedicated `alerting/failure.py`, not inline f-strings.**
+`describe_failure(exc, secrets)` renders `"ClassName: message"`. Put in its own
+module because BOTH senders need identical redaction semantics and the ordering
+guarantee below is a correctness property worth testing in isolation.
+
+**Decision SD-A10 — redact BEFORE capping.** Capping first could slice a secret
+in half and leave the surviving fragment in the message. Guarded directly by
+`test_secret_is_redacted_before_truncation`, which places a secret at the
+truncation boundary and asserts no prefix of length >= 6 survives.
+
+**Decision SD-A11 — the recipient is treated as a secret.** `ALERT_EMAIL` /
+`ALERT_PHONE` are deployment secrets, and SMTP echoes the recipient back in
+messages like `550 <addr> user unknown`. They are therefore in the redaction set.
+TRADEOFF ACCEPTED: diagnosing a wrong recipient address is now slightly harder —
+the operator sees `SMTPRecipientsRefused: 550 <redacted> user unknown`. The
+exception CLASS still identifies it as a recipient problem, which was judged
+sufficient. Reverse this by dropping `to_addr` from the `secrets` list in
+`email_alert.send` if the operator prefers legibility over redaction here.
+
+**Decision SD-A12 — raise at the END of the run, not at the point of failure.**
+Raising inside `_process_monitor` would abort the remaining monitors, destroying
+the fail-soft isolation the operator explicitly asked to keep. `run()` therefore
+accumulates failures into a list and raises `AlertDeliveryError` after every
+monitor has had its turn. `test_run_raises_after_all_monitors_have_run` proves
+the later monitor still runs, dispatches and commits.
+
+**Decision SD-A13 — `AlertDeliveryError` is NOT an `AlertError` subclass.** It is
+a run-level summary, not a per-send fault. Keeping it off the `AlertError` tree
+guarantees no `except AlertError` arm in the alerting layer can swallow it.
+
+**Decision SD-A14 — uncaught out of `main()`.** The alternative was catching it
+in `main()` and returning an exit code. Left uncaught so the traceback, INCLUDING
+the chained `__cause__`, reaches the CI log — that chain is precisely what was
+being destroyed. Exit code is 1.
+
+**Decision SD-A15 — exception message is a bounded sample.** A `google_news` run
+can fail 115 events; the full set is already in the log as one ERROR line each,
+so the exception carries `ALERT_FAILURE_SAMPLE_MAX` entries plus a `(+N more)`
+suffix.
+
+**REQUIRED companion change — `.github/workflows/monitor.yml`.** The state-commit
+step was `if: success()`. With fail-loud, any alert failure would skip the commit
+— discarding the dedupe writes for events that DID deliver, and re-alerting them
+next run. Changed to `if: ${{ !cancelled() }}`. A cancelled run is still skipped
+(its state can be half-written, per the existing concurrency comment), and a run
+that failed before `main.py` touched state is a no-op via the existing diff
+guard. This is not scope creep: without it, commit 3 introduces the duplicate
+alerting that commit 2 exists to prevent.
+
+**Behaviour change for callers.** `run()` now raises instead of always returning
+an int. Five existing tests asserted `rc == 0` on a failed-alert path; they now
+assert `pytest.raises(AlertDeliveryError)` AND keep their original commit-state
+assertions, so the commit semantics are still pinned.

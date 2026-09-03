@@ -59,6 +59,16 @@ EMAIL_SNIPPET_MAX_LENGTH: int = 2000  # cap for diff/excerpt/description in emai
 SMTP_TIMEOUT_SECONDS: float = 30  # SMTP_SSL socket timeout
 TWILIO_HTTP_TIMEOUT_SECONDS: float = 30  # TwilioHttpClient(timeout=...)
 
+# Alert-failure reporting. A sender wraps its underlying exception in an
+# AlertError; the wrapper message carries the exception CLASS plus a sanitized,
+# capped rendering of its message so an operator can tell an auth rejection from
+# a DNS failure. Credential VALUES are substituted out before the cap is applied.
+REDACTED_PLACEHOLDER: str = "<redacted>"
+ALERT_FAILURE_DETAIL_MAX_CHARS: int = 300
+# Max per-event failure summaries embedded in the end-of-run AlertDeliveryError
+# message (the full set is already in the log, one ERROR line per event).
+ALERT_FAILURE_SAMPLE_MAX: int = 5
+
 # --- YouTube (Prompt 4) ---
 
 YOUTUBE_SEARCH_COST_UNITS: int = 100

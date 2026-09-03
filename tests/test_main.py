@@ -22,10 +22,22 @@ from typing import Any, Sequence, cast
 
 import pytest
 
+import constants
 import main
 from config import AppConfig, load_config
-from errors import DispatchBridgeAuthError, DispatchBridgeError, StateError
-from main import MonitorSpec, alert_delivered, build_monitor_specs, run
+from errors import (
+    AlertDeliveryError,
+    DispatchBridgeAuthError,
+    DispatchBridgeError,
+    StateError,
+)
+from main import (
+    MonitorSpec,
+    alert_delivered,
+    build_monitor_specs,
+    describe_alert_failure,
+    run,
+)
 from models import (
     AlertChannel,
     Confidence,
@@ -355,8 +367,9 @@ def test_failed_alert_retryable_leaves_uncommitted() -> None:
     store = FakeStore()
     dispatcher = FakeDispatcher(errors_by_id={"e1": {AlertChannel.SMS: "smtp down"}})
     spec = _spec(MonitorName.EDGAR, [ev], commit_log=commit_log, retryable=True)
-    rc = _run(store=store, dispatcher=dispatcher, monitors=[spec])
-    assert rc == 0
+    # A delivery failure now fails the run (loudly) -- but only AFTER the pass.
+    with pytest.raises(AlertDeliveryError):
+        _run(store=store, dispatcher=dispatcher, monitors=[spec])
     assert commit_log == []  # NOT committed -> re-fires next run
     assert store.recorded == ["edgar"]  # but the monitor still ran
 
@@ -368,8 +381,10 @@ def test_failed_alert_nonretryable_still_commits() -> None:
     dispatcher = FakeDispatcher(errors_by_id={"e1": {AlertChannel.SMS: "smtp down"}})
     # Non-retryable (Option A / undefined shape) commits even on alert failure.
     spec = _spec(MonitorName.CONFERENCE_PAGES, [ev], commit_log=commit_log, retryable=False)
-    rc = _run(store=store, dispatcher=dispatcher, monitors=[spec])
-    assert rc == 0
+    # One-shot events still commit (re-firing would never help), but the
+    # delivery failure is still recorded and still fails the run.
+    with pytest.raises(AlertDeliveryError):
+        _run(store=store, dispatcher=dispatcher, monitors=[spec])
     assert commit_log == [("conference_pages", "e1")]
 
 
@@ -410,8 +425,8 @@ def test_configured_channel_failure_still_blocks_commit() -> None:
         sent_by_id={"e1": (AlertChannel.SMS,)},
     )
     spec = _spec(MonitorName.EDGAR, [ev], commit_log=commit_log, retryable=True)
-    rc = _run(store=store, dispatcher=dispatcher, monitors=[spec])
-    assert rc == 0
+    with pytest.raises(AlertDeliveryError):
+        _run(store=store, dispatcher=dispatcher, monitors=[spec])
     assert commit_log == []
 
 
@@ -431,8 +446,8 @@ def test_all_channels_unconfigured_does_not_commit() -> None:
         sent_by_id={"e1": ()},
     )
     spec = _spec(MonitorName.EDGAR, [ev], commit_log=commit_log, retryable=True)
-    rc = _run(store=store, dispatcher=dispatcher, monitors=[spec])
-    assert rc == 0
+    with pytest.raises(AlertDeliveryError):
+        _run(store=store, dispatcher=dispatcher, monitors=[spec])
     assert commit_log == []
 
 
@@ -480,6 +495,123 @@ def test_alert_delivered_predicate() -> None:
     assert not alert_delivered(make_result(ev, channels_sent=()))
     # Formatting failure -> not OK.
     assert not alert_delivered(make_result(ev, event_error="bad format"))
+
+
+# --------------------------------------------------------------------------- #
+# fail loud: the REASON is logged, and the run exits non-zero
+#
+# The original defect: dispatch recorded per-channel reasons in `errors`, the
+# orchestrator read that map for truthiness only, and the run returned 0. A
+# 20-day total alerting outage surfaced as a content-free "alert failed for
+# <id>" on a job GitHub reported as successful.
+# --------------------------------------------------------------------------- #
+
+
+def test_failure_reason_is_logged_per_channel(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    ev = make_event(identifier="e1")
+    store = FakeStore()
+    dispatcher = FakeDispatcher(
+        errors_by_id={
+            "e1": {
+                AlertChannel.EMAIL: "email send failed: SMTPAuthenticationError: 535 nope",
+                AlertChannel.SMS: "sms send failed: TwilioRestException: 21608",
+            }
+        },
+        sent_by_id={"e1": ()},
+    )
+    spec = _spec(MonitorName.EDGAR, [ev])
+    with caplog.at_level(logging.ERROR, logger="fomo_monitor"):
+        with pytest.raises(AlertDeliveryError):
+            _run(store=store, dispatcher=dispatcher, monitors=[spec])
+    logged = [r.getMessage() for r in caplog.records if "FAILED" in r.getMessage()]
+    assert len(logged) == 1
+    # BOTH channels and BOTH underlying reasons survive into the log line.
+    assert "email: email send failed: SMTPAuthenticationError: 535 nope" in logged[0]
+    assert "sms: sms send failed: TwilioRestException: 21608" in logged[0]
+
+
+def test_run_raises_after_all_monitors_have_run() -> None:
+    """Isolation is preserved: a failing monitor must not stop later ones. The
+    raise happens once, at the END of the pass."""
+    bad = make_event(identifier="bad")
+    good = make_event(identifier="good")
+    store = FakeStore()
+    commit_log: list[tuple[str, str]] = []
+    dispatcher = FakeDispatcher(
+        errors_by_id={"bad": {AlertChannel.EMAIL: "email send failed: OSError: dns"}},
+        sent_by_id={"bad": (), "good": (AlertChannel.EMAIL,)},
+    )
+    specs = [
+        _spec(MonitorName.EDGAR, [bad], commit_log=commit_log),
+        _spec(MonitorName.YOUTUBE, [good], commit_log=commit_log),
+    ]
+    with pytest.raises(AlertDeliveryError) as excinfo:
+        _run(store=store, dispatcher=dispatcher, monitors=specs)
+    # The later monitor still ran, dispatched, and committed.
+    assert [e.identifier for e in dispatcher.dispatched] == ["bad", "good"]
+    assert commit_log == [("youtube", "good")]
+    assert store.recorded == ["edgar", "youtube"]
+    assert "1 alert(s) failed to deliver" in str(excinfo.value)
+    assert "edgar/bad" in str(excinfo.value)
+
+
+def test_run_exception_message_is_bounded() -> None:
+    """A google_news-sized outage must not produce a multi-thousand-line
+    exception message; the full set is in the log, the message is a sample."""
+    events = [make_event(identifier=f"e{i}") for i in range(20)]
+    store = FakeStore()
+    dispatcher = FakeDispatcher(
+        errors_by_id={e.identifier: {AlertChannel.EMAIL: "boom"} for e in events},
+        sent_by_id={e.identifier: () for e in events},
+    )
+    spec = _spec(MonitorName.GOOGLE_NEWS, events)
+    with pytest.raises(AlertDeliveryError) as excinfo:
+        _run(store=store, dispatcher=dispatcher, monitors=[spec])
+    msg = str(excinfo.value)
+    assert "20 alert(s) failed to deliver" in msg
+    assert msg.count("google_news/") == constants.ALERT_FAILURE_SAMPLE_MAX
+    assert f"(+{20 - constants.ALERT_FAILURE_SAMPLE_MAX} more)" in msg
+
+
+def test_successful_run_does_not_raise() -> None:
+    ev = make_event(identifier="e1")
+    store = FakeStore()
+    spec = _spec(MonitorName.EDGAR, [ev])
+    assert _run(store=store, dispatcher=FakeDispatcher(), monitors=[spec]) == 0
+
+
+def test_dry_run_never_raises_on_alert_failure() -> None:
+    """Dry-run short-circuits before dispatch, so there is nothing to fail."""
+    ev = make_event(identifier="e1")
+    store = FakeStore()
+    dispatcher = FakeDispatcher(
+        errors_by_id={"e1": {AlertChannel.EMAIL: "boom"}}, sent_by_id={"e1": ()}
+    )
+    spec = _spec(MonitorName.EDGAR, [ev])
+    assert _run(store=store, dispatcher=dispatcher, monitors=[spec], dry_run=True) == 0
+
+
+def test_describe_alert_failure_renders_every_reason() -> None:
+    ev = make_event(identifier="e1")
+    # Per-channel errors, ordered deterministically by channel value.
+    assert describe_alert_failure(
+        make_result(ev, errors={AlertChannel.SMS: "b", AlertChannel.EMAIL: "a"})
+    ) == "email: a; sms: b"
+    # Event-level (formatting) failure.
+    assert describe_alert_failure(make_result(ev, event_error="bad")) == "event: bad"
+    # Nothing attempted at all -> names the unconfigured channels.
+    reason = describe_alert_failure(
+        make_result(
+            ev,
+            channels_sent=(),
+            channels_skipped=(AlertChannel.EMAIL,),
+            skipped_reasons={AlertChannel.EMAIL: "missing ...: GMAIL_USER"},
+        )
+    )
+    assert "no channel delivered" in reason
+    assert "email (missing ...: GMAIL_USER)" in reason
 
 
 # --------------------------------------------------------------------------- #
@@ -653,14 +785,14 @@ def test_bridge_not_fired_for_uncommitted_failed_alert() -> None:
     dispatcher = FakeDispatcher(errors_by_id={"e1": {AlertChannel.SMS: "smtp down"}})
     bridge = FakeBridge(pat=True)
     spec = _spec(MonitorName.EDGAR, [ev], retryable=True)
-    rc = _run(
-        config_path=BRIDGE_ENABLED_CONFIG,
-        store=store,
-        dispatcher=dispatcher,
-        bridge=bridge,
-        monitors=[spec],
-    )
-    assert rc == 0
+    with pytest.raises(AlertDeliveryError):
+        _run(
+            config_path=BRIDGE_ENABLED_CONFIG,
+            store=store,
+            dispatcher=dispatcher,
+            bridge=bridge,
+            monitors=[spec],
+        )
     assert bridge.fired == []  # nothing committed => nothing fired
 
 

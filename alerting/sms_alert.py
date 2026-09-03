@@ -8,7 +8,9 @@ DEFERRED into the default ``client_factory`` so importing ``alerting`` /
 ``ClientLike`` / ``MessagesLike`` Protocols type the injection seam; the whole
 client I/O boundary is wrapped in a broad, import-safe catch re-raised as
 ``AlertError`` (with an explicit ``ModuleNotFoundError`` arm for a missing
-``twilio``). The ``body[:SMS_MAX_LENGTH]`` slice is a last-resort hard cap --
+``twilio``). The wrapper message names the underlying exception CLASS and
+carries a sanitized rendering of its message (``describe_failure``) so the cause
+is not lost; credential values and the destination number are redacted. The ``body[:SMS_MAX_LENGTH]`` slice is a last-resort hard cap --
 real, URL-preserving truncation lives in ``formatting.sms_body``.
 """
 
@@ -18,6 +20,7 @@ from constants import SMS_MAX_LENGTH, TWILIO_HTTP_TIMEOUT_SECONDS
 from errors import AlertError
 
 from alerting.env import SmsCredentials, resolve_sms_credentials
+from alerting.failure import describe_failure
 
 
 class MessagesLike(Protocol):
@@ -73,6 +76,9 @@ class TwilioSender:
         self._factory = client_factory or _default_client_factory
 
     def send(self, body: str, to_phone: str) -> None:
+        # Bound before the try so the failure handler can always build the
+        # redaction set, even if credential resolution itself blew up.
+        creds: SmsCredentials | None = None
         try:
             creds = self._creds or resolve_sms_credentials()
             client = self._factory(creds.sid, creds.auth)  # deferred import here
@@ -84,9 +90,18 @@ class TwilioSender:
         except AlertError:
             raise  # pre-existing AlertError (e.g. from resolve_sms_credentials)
         except ModuleNotFoundError as exc:
-            raise AlertError("twilio not installed") from exc
+            raise AlertError(
+                f"twilio not installed: {describe_failure(exc)}"
+            ) from exc
         except Exception as exc:  # noqa: BLE001 -- scoped to client I/O boundary
             # Covers TwilioException / OSError / requests ConnectionError|Timeout.
             # There is no logic between the boundary calls, so this is not masking
-            # a logic bug. Sanitized message -- never interpolate credentials.
-            raise AlertError("sms send failed") from exc
+            # a logic bug. Name the cause's CLASS and carry its sanitized message;
+            # every credential value plus the destination number is redacted
+            # before the message is capped.
+            secrets = [to_phone]
+            if creds is not None:
+                secrets += [creds.auth, creds.sid, creds.from_]
+            raise AlertError(
+                f"sms send failed: {describe_failure(exc, secrets)}"
+            ) from exc

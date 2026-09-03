@@ -24,7 +24,10 @@ Design rules honored here:
     never affects alerting, mark-seen, ``record_run``, or the exit code.
   * NO import-time side effects. ``logging.basicConfig`` runs INSIDE ``main()``.
   * Exit 0 for a normal run (even with per-monitor failures); exit 2 ONLY for a
-    fatal config load or startup state-probe failure.
+    fatal config load or startup state-probe failure. A run in which any alert
+    failed to DELIVER raises ``AlertDeliveryError`` out of ``run()`` after all
+    monitors have finished -- uncaught by design, so the traceback (including
+    the chained cause) reaches the CI log and the process exits non-zero.
   * ``dry_run=True`` short-circuits ALL commits + bridge unconditionally and
     runs monitors against a throwaway temp copy of state so the real ``state/``
     is never touched.
@@ -54,7 +57,13 @@ load_dotenv()
 import constants
 from config import AppConfig, load_config
 from dispatch_bridge import DispatchBridge, build_bridge_payload
-from errors import ConfigError, DispatchBridgeAuthError, DispatchBridgeError, StateError
+from errors import (
+    AlertDeliveryError,
+    ConfigError,
+    DispatchBridgeAuthError,
+    DispatchBridgeError,
+    StateError,
+)
 from models import AlertChannel, DetectedEvent, EventType, MonitorName
 from state_manager import AppearanceKind, StateStore
 
@@ -357,6 +366,32 @@ def _fire_bridge_for_event(
         )
 
 
+def describe_alert_failure(result: DispatchResultLike) -> str:
+    """Human-readable reason an event's alert did not deliver.
+
+    This is the line that used to be missing entirely: the dispatcher recorded
+    per-channel reasons in ``errors`` and the orchestrator read that map for
+    truthiness only, so a total alerting outage surfaced as a content-free
+    "alert failed for <id>". Every reason is now rendered.
+
+    Channels are ordered by value for deterministic log output.
+    """
+    parts: list[str] = []
+    if result.event_error is not None:
+        parts.append(f"event: {result.event_error}")
+    for channel in sorted(result.errors, key=lambda c: c.value):
+        parts.append(f"{channel.value}: {result.errors[channel]}")
+    if parts:
+        return "; ".join(parts)
+    # No per-channel error and no event error => nothing was ever attempted:
+    # every routed channel was skipped as unconfigured (see alert_delivered).
+    skipped = ", ".join(
+        f"{c.value} ({result.skipped_reasons.get(c, 'unknown')})"
+        for c in sorted(result.channels_skipped, key=lambda c: c.value)
+    )
+    return f"no channel delivered; all routed channels unconfigured: {skipped or 'none routed'}"
+
+
 # --------------------------------------------------------------------------- #
 # Per-monitor processing
 # --------------------------------------------------------------------------- #
@@ -371,6 +406,7 @@ def _process_monitor(
     gate: _BridgeGate,
     intervals: dict[str, int],
     now: datetime,
+    failures: list[str],
     *,
     dry_run: bool,
 ) -> None:
@@ -381,6 +417,11 @@ def _process_monitor(
     ``finally`` so a monitor that actually ran records its timestamp even if its
     body raised mid-way -- EXCEPT when ``should_run`` itself failed (we never
     reached the run) or short-circuited (not due yet).
+
+    Genuine alert-delivery failures are logged at ERROR *with their reason* and
+    appended to ``failures``; ``run()`` raises once the whole pass is done. They
+    are recorded here but NOT raised here, so one monitor's alerting problem
+    still does not abort the remaining monitors.
     """
     name = spec.name.value
     ran = False
@@ -410,6 +451,18 @@ def _process_monitor(
                     channel, result.skipped_reasons.get(channel, "unknown")
                 )
             alert_ok = alert_delivered(result)
+            if not alert_ok:
+                # Log the REASON, always. Recorded for the end-of-run raise
+                # whether or not the event goes on to be committed below.
+                reason = describe_alert_failure(result)
+                logger.error(
+                    "monitor %s: alert delivery FAILED for %r -- %s",
+                    name,
+                    event.identifier,
+                    reason,
+                )
+                failures.append(f"{name}/{event.identifier}: {reason}")
+
             if alert_ok or not spec.retryable(event):
                 # Commit when the alert cleanly dispatched, OR when the event is
                 # one-shot (Option A / undefined shape): re-firing would never
@@ -429,8 +482,7 @@ def _process_monitor(
                 # Retryable event whose alert failed: leave un-committed so it
                 # re-fires next run. Do NOT fire the bridge (nothing committed).
                 logger.warning(
-                    "monitor %s: alert failed for %r; leaving un-committed to "
-                    "retry next run",
+                    "monitor %s: %r left un-committed to retry next run",
                     name,
                     event.identifier,
                 )
@@ -592,6 +644,7 @@ def run(
 
         # --- run each monitor in isolation ----------------------------- #
         intervals = config.monitor_intervals
+        alert_failures: list[str] = []
         for spec in monitors:
             _process_monitor(
                 spec,
@@ -602,14 +655,32 @@ def run(
                 gate,
                 intervals,
                 now,
+                alert_failures,
                 dry_run=dry_run,
             )
 
         logger.info(
-            "%s run complete (dry_run=%s)",
+            "%s run complete (dry_run=%s, alert_failures=%d)",
             constants.LOG_RUN_SUMMARY_PREFIX,
             dry_run,
+            len(alert_failures),
         )
+
+        # Fail LOUD. Raised only after every monitor has had its turn, so
+        # per-monitor isolation is preserved, but the process still exits
+        # non-zero -- which is what makes GitHub Actions' own failure
+        # notification a backstop for a silent alerting outage. The workflow
+        # commits state on `!cancelled()`, so events that DID deliver keep their
+        # dedupe state and are not re-alerted by the next run.
+        if alert_failures:
+            sample = alert_failures[: constants.ALERT_FAILURE_SAMPLE_MAX]
+            more = len(alert_failures) - len(sample)
+            suffix = f" (+{more} more)" if more > 0 else ""
+            raise AlertDeliveryError(
+                f"{len(alert_failures)} alert(s) failed to deliver: "
+                + " | ".join(sample)
+                + suffix
+            )
         return 0
     finally:
         # Clean up the dry-run temp state dir (if any). TemporaryDirectory.cleanup
