@@ -701,3 +701,64 @@ want both silent.
 **Scope.** The gate applies to `podcast_rss` only. `backfill.py` deliberately
 still uses the broader `matches_keywords`: it seeds PRE-SEED entries, where a
 superset is the conservative direction.
+
+---
+
+## 2026-09-03 — Commits 15-18 + Leopold coverage audit
+
+**Commit 15 — Replay via workflow_dispatch.** The local CLI replay failed on a
+9-character `GMAIL_APP_PASSWORD` in `.env` (app passwords are 16). Rather than
+put the real secret on the laptop, `.github/workflows/replay.yml` runs replay
+where the working secrets already are. `dry_run` defaults TRUE so an accidental
+dispatch previews. Inputs go through env into an args array, never interpolated
+into the shell. A final step asserts `state/` is unmodified.
+
+**Commit 16 — Dwarkesh feed.** NOT a User-Agent block, as hypothesised. Verified:
+identical UA gets HTTP 200 from a laptop and HTTP 403 from a runner — Substack
+blocks GitHub Actions IP ranges. Switched to `www.dwarkesh.com/feed`. TRADE-OFF:
+20-item window vs 139, so the June 2024 Leopold episode is out of reach. The two
+feeds share ZERO guids (UUIDs vs post URLs), so configuring both would
+double-alert; this replaces. Needs a real Actions run to confirm.
+
+**Commit 17 — CI.** The repo had 597 tests and nothing running them. Now runs
+mypy + pytest on push/PR, `state/**` path-ignored. **The operator asked for
+`--check` to fail the Actions run when stale; that is not possible as asked** --
+`--check` compares against the celeb-pm corpus, which is a separate repo, and
+cross-repo CI was explicitly ruled out. What CI CAN enforce, and now does, is
+that the manifest has not gone inert (`test_real_manifest_feeds_youtube_dedupe`,
+>= 30 ids). True drift detection stays a local command, documented in the README
+and in the workflow comment.
+
+**Commit 18 — Lex Fridman feed URL.** It was `url: ""`, and an empty url is
+skipped outright by `check_podcast_rss`, so the entry monitored nothing since the
+repo was built. Filled in with the verified feed.
+
+### Leopold coverage audit
+
+| source | configured? | works? | notes |
+|---|---|---|---|
+| EDGAR CIK 0002045724 | yes | **yes** | the only Leopold channel that has ever produced signal — incl. the $523.9M 13D |
+| Dwarkesh podcast | yes | now | was 403 since 2026-08-09; fixed, 20-item window |
+| Lex Fridman podcast | in name only | **now** | was `url: ""`; 0 historical Leopold matches |
+| YouTube search | yes | yes | 3 queries; HIGH now needs a known channel |
+| conference_pages | yes | yes | full-name keywords now include him |
+| google_news | yes | silenced | by policy |
+| **situational-awareness.com** | yes | **NO** | see below |
+
+**situational-awareness.com cannot be monitored by this stack, at all.** `/feed`
+returns the homepage HTML (200, 4,923 bytes, `text/html`) — there is no RSS, so
+`_check_rss_site`'s valid-feed gate correctly refuses to seed it, which is why it
+has never seeded. Flipping to page-hash does not help either: the page normalises
+to ZERO characters of text (client-rendered SPA shell), so `is_suspect_content`
+rejects it. Both branches are dead ends without a JS-rendering fetch. Left as-is
+rather than churning config for no benefit. `leopold_post` has therefore never
+fired and cannot until this is addressed — headless rendering, or watching a
+different surface (his X account, or the GitHub/Substack mirror if one exists).
+
+**Structural gap, worth the operator's attention:** Leopold's coverage rests on
+EDGAR plus YouTube search. Podcast coverage is two feeds, one of which has never
+carried him. If he does an interview on a show that is not configured and whose
+channel is not in `known_channels`, it lands in `youtube_medium` and stays
+silent. That is recoverable — silent capture still writes to state — but it is
+not an alert. Adding channels to `known_channels` as they appear is the
+maintenance task that keeps this working.

@@ -133,7 +133,13 @@ podcast_rss:
       url: "https://www.dwarkesh.com/feed"
       keywords: ["Leopold Aschenbrenner"]
     - show: "Lex Fridman"
-      url: ""
+      # Was url: "" -- and an empty url is SKIPPED outright by check_podcast_rss
+      # ("empty-url feeds get NO seed key"), so this entry monitored nothing at
+      # all since the repo was built. Filled in 2026-09-03 with the verified
+      # feed (HTTP 200, 502 items). Leopold has never appeared on it -- 0
+      # first-party matches across the full archive -- so this buys future
+      # coverage, not backfill.
+      url: "https://lexfridman.com/feed/podcast/"
       keywords: ["Leopold Aschenbrenner"]
 
 google_news:
