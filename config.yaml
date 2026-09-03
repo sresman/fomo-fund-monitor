@@ -61,7 +61,14 @@ youtube:
     - "The Limitless Podcast"
     - "TBPN"
     - "Aleph"
-  framing_keywords:                      # interview/guest framing tokens (lowercased match)
+  # NOTE (2026-09-03): framing_keywords NO LONGER promotes a video to HIGH.
+  # A title is written by whoever uploaded it, so a third-party channel could
+  # call its 90-second cut "Gavin Baker interview" and inherit HIGH confidence --
+  # which is how a Chinese-language recap and two ~100-second clips reached the
+  # inbox. HIGH now requires known_channels membership (first-party publisher).
+  # The list is retained: it is still validated by the loader and is the natural
+  # place to tune from if a second signal is ever wanted.
+  framing_keywords:                      # interview/guest framing tokens (currently unused for routing)
     - "interview"
     - "podcast"
     - "conversation"

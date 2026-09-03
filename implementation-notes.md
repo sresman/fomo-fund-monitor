@@ -637,3 +637,29 @@ insider transaction by a tracked entity is a filing, though the operator named
 only 13F/13D/13G); `conference_change` kept alerting (a speaker page naming him
 is not itself an appearance, but it is advance notice of one, and full-name
 keywords make it near-zero volume).
+
+---
+
+## 2026-09-03 — Commit 13: YouTube HIGH requires a known publisher channel
+
+**Problem.** `_classify` promoted to HIGH on `known_channel OR framed`, where
+`framed` meant a framing keyword ("interview", "podcast", "episode"...) appeared
+in the TITLE. A title is written by whoever uploaded it, so any third-party
+channel could call its 90-second cut "Gavin Baker interview" and inherit HIGH.
+
+**Decision SD-A47 — channel allowlisting is the first-party test** (the approach
+the operator endorsed). HIGH now requires `known_channel` alone. MEDIUM becomes
+"the name is in the title but we do not recognise the publisher", which is
+precisely the derivative bucket, and routes nowhere.
+
+**A test had pinned the loophole.** `test_high_surname_and_framing` asserted HIGH
+for title "Gavin Baker interview" on channel "Zzz". Inverted, with the reason in
+its docstring. Added a parametrised test over the three uploads that actually
+reached the inbox on 2026-09-03 ("Markluce AI", "Bumlife2Bomblife. ent",
+"UninformedInvestors") asserting MEDIUM for each.
+
+**Cost, stated plainly.** A genuine appearance on a channel NOT in
+`known_channels` now lands in MEDIUM and is silent. That is a real gap, and its
+mitigation is maintaining `known_channels` -- see the Leopold coverage audit.
+`framing_keywords` is retained and still validated by the loader but no longer
+affects routing; the config comment says so at the point of definition.

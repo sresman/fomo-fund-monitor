@@ -234,16 +234,45 @@ def test_high_surname_and_known_channel(
     assert events[0].priority == Priority.HIGH
 
 
-def test_high_surname_and_framing(
+def test_framing_in_title_no_longer_promotes_an_unknown_channel(
     feeds_config: AppConfig, store: StateStore
 ) -> None:
+    """INVERTED 2026-09-03. This asserted HIGH for a framing word in the title
+    on an UNKNOWN channel -- the loophole itself.
+
+    A title is written by whoever uploaded it, so any third-party channel could
+    call its 90-second cut "Gavin Baker interview" and inherit HIGH, which is
+    exactly how a Chinese-language recap and two ~100-second clips reached the
+    inbox. HIGH now requires a known publisher channel; this is MEDIUM, which
+    routes nowhere.
+    """
     _seed_all_markers(store, feeds_config)
     client = FakeYouTubeClient(
         {Q_BAKER_BROAD: (vid("aaaaaaaaaa2", "Gavin Baker interview", channel="Zzz"),)}
     )
     events = check_youtube(feeds_config, store, client, NOW)
     assert len(events) == 1
-    assert events[0].event_type == EventType.YOUTUBE_HIGH
+    assert events[0].event_type == EventType.YOUTUBE_MEDIUM
+    assert events[0].confidence == Confidence.MEDIUM
+
+
+@pytest.mark.parametrize(
+    ("channel", "title"),
+    [
+        # The three that actually reached the inbox on 2026-09-03.
+        ("Markluce AI", "為什麼 AI 的需求跑贏了算力供給｜a16z × Gavin Baker 完整重點整理"),
+        ("Bumlife2Bomblife. ent", "Gavin Baker: The Ensemble Future of AI Models"),
+        ("UninformedInvestors", "Gavin Baker says Grok Bot feels like another ChatGPT moment"),
+    ],
+)
+def test_real_derivative_uploads_classify_as_medium(
+    feeds_config: AppConfig, store: StateStore, channel: str, title: str
+) -> None:
+    _seed_all_markers(store, feeds_config)
+    client = FakeYouTubeClient({Q_BAKER_BROAD: (vid("aaaaaaaaaa9", title, channel=channel),)})
+    events = check_youtube(feeds_config, store, client, NOW)
+    assert len(events) == 1
+    assert events[0].event_type == EventType.YOUTUBE_MEDIUM
 
 
 def test_medium_surname_only(
@@ -286,7 +315,7 @@ def test_suffix_stripped_surname() -> None:
     # person "Foo Bar Jr." -> surname "bar", matched in the title.
     from monitors.youtube import _classify
 
-    cls = _classify("Foo Bar Jr.", "the bar segment", "Zzz", (), ())
+    cls = _classify("Foo Bar Jr.", "the bar segment", "Zzz", ())
     assert cls is not None
     assert cls.event_type == EventType.YOUTUBE_MEDIUM
 

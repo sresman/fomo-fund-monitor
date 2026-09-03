@@ -247,9 +247,25 @@ def _classify(
     title: str,
     channel_title: str,
     known_channels: tuple[str, ...],
-    framing_keywords: tuple[str, ...],
 ) -> _Classification | None:
-    """Return the classification, or None to EXCLUDE (surname not in title)."""
+    """Return the classification, or None to EXCLUDE (surname not in title).
+
+    HIGH requires the video to be published BY A KNOWN CHANNEL -- i.e. an
+    official podcast/media channel in ``youtube.known_channels``. That is the
+    first-party test: the person actually speaking on a publisher's channel,
+    rather than someone clipping or reacting to them.
+
+    Framing keywords in the TITLE used to promote to HIGH on their own. They no
+    longer do, because a title is written by whoever uploaded it: a third-party
+    channel can call its 90-second cut "Gavin Baker interview" and inherit HIGH.
+    Every YouTube event that reached the inbox on 2026-09-03 was of exactly this
+    shape -- a Chinese-language recap of an a16z episode, and two ~1:40 clips
+    from channels named "Bumlife2Bomblife. ent" and "UninformedInvestors".
+
+    MEDIUM is therefore "the name is in the title but the publisher is not one we
+    recognise", which is the derivative bucket. It routes to no channels (see
+    ``alert_routing.youtube_medium``), so it is captured, committed, and silent.
+    """
     surname = surname_of(person)
     title_lower = title.lower()
     surname_in_title = surname != "" and surname in title_lower
@@ -258,12 +274,8 @@ def _classify(
 
     channel_norm = channel_title.strip().lower()
     known_channel = channel_norm in {c.strip().lower() for c in known_channels}
-    framed = any(
-        kw.strip().lower() != "" and kw.strip().lower() in title_lower
-        for kw in framing_keywords
-    )
 
-    if known_channel or framed:
+    if known_channel:
         return _Classification(
             EventType.YOUTUBE_HIGH, Confidence.HIGH, Priority.HIGH
         )
@@ -433,7 +445,6 @@ def check_youtube(
                 result.title,
                 result.channel_title,
                 config.youtube.known_channels,
-                config.youtube.framing_keywords,
             )
             if classification is None:
                 _log.debug("YouTube: EXCLUDE (surname absent) %r", result.title)
