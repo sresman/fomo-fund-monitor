@@ -6,8 +6,18 @@ from __future__ import annotations
 specs, interval-gate each monitor, run it in isolation, dispatch alerts, commit
 per-event dedupe state ONLY after a successful alert dispatch, then fire the
 optional ``repository_dispatch`` bridge for each committed event. ``main()`` is a
-thin shell that wires the real clock + logging and translates the return code
-into a process exit code.
+thin shell that parses argv, wires the real clock + logging, and translates the
+return code into a process exit code.
+
+CLI::
+
+    python main.py                            # one monitoring pass (the cron)
+    python main.py --dry-run                  # ... sending nothing
+    python main.py --replay-since 2026-08-14  # re-emit past alerts (edgar only)
+    python main.py --replay-since 2026-08-14 --monitor youtube --limit 10
+
+Replay lives in ``replay.py`` and is imported lazily, so a normal cron pass never
+pays for it.
 
 Design rules honored here:
   * Filing date / observation is the anchor -- monitors already stamp events;
@@ -40,12 +50,13 @@ clients) are imported lazily inside ``run()`` so importing this module pulls no
 network stack (preserves ``test_main_importable_no_side_effects``).
 """
 
+import argparse
 import logging
 import shutil
 import sys
 import tempfile
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Callable, Mapping, Protocol, Sequence
 
@@ -563,9 +574,10 @@ def _build_state_store(
     return StateStore(tmp_state), tmp
 
 
-def _build_clients() -> Clients:
+def build_clients() -> Clients:
     """Construct the concrete transport clients via DEFERRED imports so importing
-    ``main`` pulls no network stack."""
+    ``main`` pulls no network stack. Public because ``replay.py`` builds the same
+    real clients for its replay pass."""
     from monitors._common import RequestsFeedClient
     from monitors.cnbc import CnbcHttpClient
     from monitors.edgar import EdgarHttpClient
@@ -649,7 +661,7 @@ def run(
 
         # --- monitor specs --------------------------------------------- #
         if monitors is None:
-            clients = _build_clients()
+            clients = build_clients()
             # build_monitor_specs binds the CONCRETE StateStore; when a fake
             # store is injected for tests, callers pass `monitors=` too.
             assert isinstance(active_store, StateStore)
@@ -721,13 +733,101 @@ def run(
                 pass
 
 
-def main() -> int:
+def build_arg_parser() -> argparse.ArgumentParser:
+    """CLI surface. No args => one normal monitoring pass (the cron's behaviour)."""
+    parser = argparse.ArgumentParser(
+        prog="fomo-fund-monitor",
+        description=(
+            "Run one monitoring pass, or replay alerts for past events with "
+            "--replay-since."
+        ),
+    )
+    parser.add_argument(
+        "--replay-since",
+        metavar="YYYY-MM-DD",
+        help=(
+            "Re-emit alerts for events published on or after this date, through "
+            "the real send path. Does NOT mutate state or dedupe, so it is safe "
+            "to run repeatedly. Defaults to the edgar monitor only."
+        ),
+    )
+    parser.add_argument(
+        "--monitor",
+        action="append",
+        dest="monitors",
+        metavar="NAME",
+        choices=sorted(m.value for m in MonitorName),
+        help=(
+            "Replay only this monitor; repeatable. Default: edgar. The "
+            "high-volume sources (google_news, youtube, ...) replay ONLY when "
+            "named explicitly. Ignored without --replay-since."
+        ),
+    )
+    parser.add_argument(
+        "--limit",
+        type=int,
+        metavar="N",
+        help=(
+            "Cap a replay at the N most recent matching events (still sent "
+            "oldest-first). Default: no limit. Ignored without --replay-since."
+        ),
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help=(
+            "List what would be sent without sending anything. Applies to a "
+            "replay or to a normal pass."
+        ),
+    )
+    return parser
+
+
+def _parse_since(raw: str) -> date:
+    try:
+        return datetime.strptime(raw, "%Y-%m-%d").date()
+    except ValueError as exc:
+        raise SystemExit(
+            f"--replay-since must be YYYY-MM-DD, got {raw!r}"
+        ) from exc
+
+
+def main(argv: Sequence[str] | None = None) -> int:
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
+    args = build_arg_parser().parse_args(argv)
     now = datetime.now(timezone.utc)
-    return run(now)
+
+    if args.replay_since is None:
+        if args.monitors or args.limit is not None:
+            logger.warning(
+                "--monitor / --limit apply to --replay-since only; ignoring "
+                "them for this monitoring pass"
+            )
+        return run(now, dry_run=args.dry_run)
+
+    # Deferred import: a normal cron pass must not pay for the replay module.
+    from replay import DEFAULT_REPLAY_MONITORS, replay
+
+    since = _parse_since(args.replay_since)
+    monitors = (
+        tuple(MonitorName(name) for name in args.monitors)
+        if args.monitors
+        else DEFAULT_REPLAY_MONITORS
+    )
+    try:
+        replay(
+            since,
+            now,
+            monitors=monitors,
+            limit=args.limit,
+            dry_run=args.dry_run,
+        )
+    except ValueError as exc:  # unsupported monitor / bad --limit
+        raise SystemExit(str(exc)) from exc
+    return 0
 
 
 if __name__ == "__main__":

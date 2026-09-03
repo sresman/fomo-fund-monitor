@@ -232,3 +232,74 @@ a 1440-minute interval. With the cron effectively firing ~6x/weekday (GitHub
 throttles the `*/15` schedule), a failed daily check now retries on the next
 pass, which could be hours later — better than the previous 24-hour blackout,
 but still not prompt. Consider whether those intervals are still right.
+
+---
+
+## 2026-09-03 — Commit 5: --replay-since
+
+**DEVIATION FROM THE BRIEF — read this one.** The instruction was "re-emit alerts
+for STATE entries newer than the given date". That is not implementable as
+written, for two independent reasons:
+
+1. **No timestamps in state.** `seen_filings.json` is `{entity: [accession]}` and
+   `seen_appearances.json` is bare id lists. Nothing records WHEN an id was
+   added, so "state entries newer than DATE" has no answer. (The only dating
+   available is git history of the state commits, which is an artifact of the CI
+   workflow, not of the data.)
+2. **No content in state.** An entry is an opaque id — `"CBMiqAF..."`,
+   `"0001777813-26-000009"`. There is no title, URL, or body to build an alert
+   from.
+3. **The events worth replaying are NOT in state.** Commit-after-dispatch means
+   every event that failed to alert was never recorded. A literal state-driven
+   replay would re-send only the alerts that already succeeded and miss all
+   twenty days of the ones that did not — the exact inverse of the goal.
+
+**Decision SD-A21 — replay re-runs each monitor against its LIVE source** through
+the real production code path, then date-filters the resulting events. This
+covers committed AND never-committed events uniformly and needs no schema change.
+
+**Decision SD-A22 — dedupe is bypassed by an emptied-bucket temp store, not by a
+flag.** `_replay_state_dir` copies the real state into a `TemporaryDirectory`
+with the dedupe buckets EMPTIED but the keys and seed markers KEPT. Empty buckets
+make every current item read as "new" (so already-alerted events replay); kept
+keys/markers keep each monitor out of its first-run seeding branch, which returns
+zero events by design. This required no change to any monitor — the replay
+semantics fall out of the existing contract. Configured entities absent from real
+state are also given a present-but-empty list so replay works pre-seed.
+
+**Decision SD-A23 — "safe to run repeatedly" means cannot corrupt, not
+suppresses.** Replay never writes real state and never fires the bridge, so any
+number of runs is harmless. It does re-send on each run — that is the feature.
+`test_replay_is_repeatable` pins both halves.
+
+**Decision SD-A24 — hash-diff monitors are excluded entirely.**
+`conference_pages` and `website_diff` page-hash events stamp `published = now`
+(a content-hash change has no source date), so a date filter would match
+everything unconditionally. They are absent from `REPLAYABLE_MONITORS` and
+`--monitor website_diff` is a hard `ValueError` rather than a surprise flood.
+
+**Decision SD-A25 — `--limit` keeps the NEWEST N but sends oldest-first.** A
+truncated replay should surface the most recent news, but the resulting emails
+should still arrive in chronological order. `ReplayReport.matched` reports the
+PRE-limit count so the operator can see what was cut.
+
+**Decision SD-A26 — `--dry-run` added (not in the brief).** A command that sends
+real email to a real inbox with no undo needs a preview. `--dry-run` lists what
+would be sent. Small and opt-in; the default is still the real send path as
+specified. Flagging as scope the operator did not ask for.
+
+**Decision SD-A27 — replay is its own module.** `replay.py`, imported lazily
+inside `main()`, so a normal cron pass pays nothing for it and the orchestrator
+stays thin (per CLAUDE.md). `_build_clients` was renamed to public
+`build_clients` so replay can build the same real clients.
+
+**Boundary semantics.** `--replay-since 2026-08-14` is INCLUSIVE of the 14th
+(`published.date() >= since`), which is what an operator naming the filing date
+expects. Pinned by `test_select_filters_on_and_after_since`.
+
+**Open question for the operator.** Replay of `podcast_rss` / `google_news` /
+`cnbc` is only as complete as the source's current window — an RSS feed that has
+rolled over no longer carries August items, so replay will find fewer events than
+were originally detected. EDGAR has no such limit (full submissions history).
+This is inherent to re-running the source and cannot be fixed without recording
+event payloads in state.
