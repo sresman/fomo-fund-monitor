@@ -179,6 +179,39 @@ DISPATCH_RETRY_BACKOFF_SECONDS: float = 2.0  # slept via the injected sleep
 # Cap on the bridge-error message length carried in the payload (never the PAT).
 DISPATCH_ERROR_MAX_CHARS: int = 500
 
+# --- Weekly heartbeat ---
+#
+# THRESHOLDS ARE CALIBRATED ON OBSERVED CADENCE, NOT ON THE CRON SPEC.
+# monitor.yml declares `*/15` (96 runs/day), but GitHub heavily throttles
+# high-frequency schedules: measured over 2026-08-19..2026-09-03 this repo
+# actually received 2-7 runs/day from 2026-08-27 onward (~6 per weekday), an
+# effective gap of roughly 4 hours. A threshold derived from 96/day would fire
+# a false alarm on every single heartbeat and train the operator to ignore it.
+HEARTBEAT_WINDOW_DAYS: int = 7
+# Measured effective gap between delivered scheduled runs (~4h), NOT 15 minutes.
+HEARTBEAT_OBSERVED_RUN_GAP_MINUTES: int = 240
+# ~6/weekday over 7 days is ~40 runs; alarm only well below that, so ordinary
+# throttling variance stays quiet.
+HEARTBEAT_MIN_RUNS_PER_WINDOW: int = 20
+# A monitor is stale when its last_run is older than this multiple of the LARGER
+# of its configured interval and the observed run gap (a 15-minute interval
+# cannot beat a 4-hour delivery cadence).
+HEARTBEAT_STALE_INTERVAL_MULTIPLIER: int = 3
+# Subject prefix for the heartbeat email (distinct from the [ALERT] prefixes so
+# it can be filtered into its own inbox folder).
+HEARTBEAT_SUBJECT_PREFIX: str = "[MONITOR HEARTBEAT]"
+# The monitoring workflow's filename, used to query its run history.
+HEARTBEAT_MONITOR_WORKFLOW_FILE: str = "monitor.yml"
+# GitHub REST endpoint for one workflow's runs. Optional enrichment: used only
+# when GITHUB_TOKEN + GITHUB_REPOSITORY are present (i.e. inside Actions).
+GITHUB_WORKFLOW_RUNS_URL: str = (
+    "https://api.github.com/repos/{owner_repo}/actions/workflows/{workflow}/runs"
+)
+GITHUB_RUNS_PER_PAGE: int = 100
+GITHUB_RUNS_MAX_PAGES: int = 5  # 500 runs is far beyond a 7-day window
+ENV_GITHUB_TOKEN: str = "GITHUB_TOKEN"
+ENV_GITHUB_REPOSITORY: str = "GITHUB_REPOSITORY"
+
 # --- Run-summary labels (Prompt 6) -- structured logging keys ---
 LOG_RUN_SUMMARY_PREFIX: str = "run-summary"
 

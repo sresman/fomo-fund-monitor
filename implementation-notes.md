@@ -303,3 +303,65 @@ rolled over no longer carries August items, so replay will find fewer events tha
 were originally detected. EDGAR has no such limit (full submissions history).
 This is inherent to re-running the source and cannot be fixed without recording
 event payloads in state.
+
+---
+
+## 2026-09-03 — Commit 6: weekly heartbeat
+
+**Problem.** Absence of alerts was indistinguishable from absence of a working
+alerter for 25 days. The heartbeat makes silence legible.
+
+**Decision SD-A28 — thresholds calibrated on OBSERVED cadence (the operator's
+explicit instruction).** `monitor.yml` declares `*/15` = 96 runs/day = 672/week.
+Measured 2026-08-19..09-03, GitHub actually delivered 2-7 runs/day from 08-27
+onward (~6/weekday, ~40/week), an effective gap of ~4 hours. Therefore:
+
+  * `HEARTBEAT_MIN_RUNS_PER_WINDOW = 20` — below the observed ~40/week, so
+    ordinary throttling variance stays quiet; a value derived from the cron spec
+    would alarm every single week and train the operator to ignore it.
+  * `HEARTBEAT_OBSERVED_RUN_GAP_MINUTES = 240` — the staleness budget for a
+    monitor is `max(its interval, 240) * 3`. A 15-minute interval cannot beat a
+    4-hour delivery cadence, so edgar's budget is 12h, not 45m.
+
+`test_threshold_is_calibrated_on_observed_cadence_not_cron_spec` asserts the
+floor sits below the OBSERVED rate and an order of magnitude below the declared
+one, so a future edit that "fixes" it against the cron spec fails the suite.
+
+**Decision SD-A29 — two data sources, with graceful degradation.** Preferred:
+the Actions API (`GITHUB_TOKEN` + `GITHUB_REPOSITORY`, both present in-workflow)
+for an exact executed/failed split — "errors" in the operator's spec is only
+answerable this way, since a failed run now still commits state. Fallback: count
+`state/` commits, which cannot see failures. The report NAMES which source it
+used rather than quietly presenting a weaker number as the same number.
+
+**Decision SD-A30 — "events found" is reported as ALERTS DELIVERED.** Counted as
+dedupe-id additions since the window's baseline commit. Dedupe state is written
+only after a successful dispatch, so this is a true delivery count, not a
+detection count. Detections that failed to alert are deliberately NOT in it —
+they show up as run failures instead. Computed by set difference against
+`git show <baseline>:state/...`, so JSON key reordering cannot inflate it.
+
+**Decision SD-A31 — `fetch-depth: 0` is mandatory in the workflow.**
+`actions/checkout@v4` defaults to a depth-1 shallow clone, which would make the
+heartbeat report one run and zero alerts every week — a false alarm generator.
+Called out in a comment at the checkout step.
+
+**Decision SD-A32 — the heartbeat never swallows, but never crashes either.**
+Every data-source call (`git`, the Actions API) is defensive and degrades to a
+zero/None, because a heartbeat that dies on a git fault reintroduces exactly the
+silence it exists to prevent. The SEND, by contrast, is allowed to raise: a
+heartbeat that cannot be delivered IS the alarm and must fail the job.
+
+**Decision SD-A33 — verdict in the subject line.** `[MONITOR HEARTBEAT] OK — 38
+runs, 0 alerts in 7d`. Readable from a phone notification without opening the
+mail, and the distinct prefix lets it be filtered away from `[SEC FILING]` etc.
+
+**Validation against the real repo.** Rendered live during development:
+38 runs / **0 alerts delivered** over the last 7 days. That is the true number,
+and it is exactly the signal that was missing — this heartbeat would have shown
+"0 alerts" every week since launch.
+
+**Open question for the operator.** Zero alerts in a week is NOT currently
+treated as a problem (a genuinely quiet week is legitimate), only surfaced in the
+subject. If a quiet week is implausible enough to be worth alarming on, add a
+`HEARTBEAT_MIN_ALERTS_PER_WINDOW` floor.
