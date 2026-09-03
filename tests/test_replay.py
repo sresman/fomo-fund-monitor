@@ -102,6 +102,7 @@ class _Result:
         channels_sent: tuple[AlertChannel, ...],
         errors: dict[AlertChannel, str],
     ) -> None:
+        self.routed: tuple[AlertChannel, ...] = (AlertChannel.EMAIL,)
         self.channels_sent = channels_sent
         self.channels_skipped: tuple[AlertChannel, ...] = ()
         self.errors = errors

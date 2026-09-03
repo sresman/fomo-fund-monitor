@@ -588,3 +588,52 @@ one. Flagged for the operator, not solved here.
 **Effect:** 57 → 35 matches across the corpus of feeds; all 22 removed are noise.
 The 3 backfilled TWiST guids are also no longer even candidates, so the
 `--backfill-seeds` dry-run now reports 0 missed.
+
+---
+
+## 2026-09-03 — Commit 12: silent capture (`alert_routing: []`)
+
+**Operator policy.** The alert set is FIRST-PARTY APPEARANCES by Baker or
+Leopold, plus SEC filings for the two tracked entities. Google News alone was
+~92% of alert volume and none of it actionable.
+
+**Decision SD-A44 — an empty channel list means capture-and-commit, not
+"broken".** `_build_alert_routing` already accepted `[]`; nothing downstream
+handled it. `alert_delivered` required `channels_sent` to be non-empty, so a
+silenced monitor would have re-detected the same events forever and never
+committed — the exact loop this batch spent the day removing.
+
+**Decision SD-A45 — `DispatchResult.routed` is a NEW field, not inferred.** Two
+states look identical in `channels_sent` and mean opposite things:
+  * routed somewhere, nothing delivered -> alerting OUTAGE, must not commit;
+  * routed NOWHERE -> silent capture, must commit.
+Inferring the difference from empty `channels_attempted`/`channels_skipped` would
+have been fragile. `routed` carries `alert.channels` verbatim.
+
+**Decision SD-A46 — chose silence over disabling the monitor.** The operator
+offered "disable the monitor and tell me what I lose". Silent capture is strictly
+better: `google_news` keeps writing to the `urls` dedupe bucket, so the corpus
+still accrues for later analysis and re-enabling is a one-line config change with
+no backlog flood (state is current). Disabling would freeze the bucket and make
+re-enabling emit months of accumulated history at once.
+
+**Routing decisions, each one deliberate:**
+
+| event | route | why |
+|---|---|---|
+| `filing_13f`, `filing_sc13`, `filing_form4` | email | SEC filings, tracked entities, low volume |
+| `filing_other` | SILENT | unmapped forms; no defined signal |
+| `youtube_high` | email | HIGH now requires a known publisher channel |
+| `podcast_rss` | email | monitor-gated to first-party appearances |
+| `cnbc_video` | email | a CNBC hit IS the person on camera |
+| `leopold_post` | email | Leopold writing first-party |
+| `conference_change` | email | a speaker page naming him = an upcoming appearance |
+| `youtube_medium` | SILENT | unknown channel => clip / recap / reaction |
+| `google_news` | SILENT | ~92% of volume, commentary not events |
+| `website_diff` | SILENT | any-diff page hash; currently a WAF challenge page |
+
+**Judgement calls flagged for the operator:** `filing_form4` kept alerting (an
+insider transaction by a tracked entity is a filing, though the operator named
+only 13F/13D/13G); `conference_change` kept alerting (a speaker page naming him
+is not itself an appearance, but it is advance notice of one, and full-name
+keywords make it near-zero volume).

@@ -307,6 +307,7 @@ def test_dispatch_events_preserves_order_and_length(
 def test_result_is_frozen() -> None:
     result = DispatchResult(
         event=make_event(),
+        routed=(),
         channels_attempted=(),
         channels_sent=(),
         channels_skipped=(),

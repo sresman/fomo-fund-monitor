@@ -129,6 +129,9 @@ class DispatchResultLike(Protocol):
     ``channels_sent`` is what proves the alert actually reached someone."""
 
     @property
+    def routed(self) -> Sequence[AlertChannel]: ...
+
+    @property
     def channels_sent(self) -> Sequence[AlertChannel]: ...
 
     @property
@@ -154,16 +157,24 @@ def alert_delivered(result: DispatchResultLike) -> bool:
        merely unconfigured is SKIPPED, not failed -- so an absent optional
        channel (e.g. SMS with no Twilio secrets) never blocks the dedupe commit
        and never causes indefinite re-alerting on an already-delivered email.
-    3. At least one channel actually delivered. If EVERY routed channel was
-       skipped, nothing was sent; committing would mark the event seen without
-       anyone ever having been told, losing the alert permanently. That case is
-       an alerting-layer outage, not a per-event condition, and is deliberately
-       treated as NOT delivered so the event re-fires once alerting is fixed.
+    3. At least one channel actually delivered -- UNLESS the event was routed to
+       no channels at all. Those two look identical in ``channels_sent`` but mean
+       opposite things:
+
+         * routed somewhere, nothing delivered -> an alerting-layer OUTAGE.
+           Deliberately NOT delivered, so the event re-fires once alerting works.
+         * routed NOWHERE (``alert_routing: []``) -> a SILENT CAPTURE, on
+           purpose. There was nothing to deliver, so it counts as delivered and
+           the dedupe state commits; the data accrues for later analysis without
+           reaching an inbox. Without this branch a silenced monitor would
+           re-detect the same events forever and never commit.
     """
     if result.event_error is not None:
         return False
     if result.errors:
         return False
+    if not result.routed:
+        return True  # silent capture: nothing to deliver, so nothing failed
     return bool(result.channels_sent)
 
 

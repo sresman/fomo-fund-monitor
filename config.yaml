@@ -175,30 +175,34 @@ website_diff:
 # MUST cover EXACTLY every EventType member — missing OR unknown key => ConfigError.
 # Each maps to the channels to fire (validated against AlertChannel).
 #
-# SMS IS DELIBERATELY UNROUTED (2026-09-03). The Twilio secrets are not set and
-# are not going to be. Six of these rows previously read ["email", "sms"]:
-# filing_13f, filing_sc13, youtube_high, podcast_rss, cnbc_video, leopold_post.
-# The alerting layer would treat the missing credentials as "channel not
-# configured" and skip it harmlessly, but leaving the route in place would keep
-# emitting a skip warning every run for a channel that will never fire. Removing
-# it means TwilioSender is never constructed or called at all.
+# AN EMPTY LIST IS A SILENT CAPTURE, NOT A MISTAKE. The monitor still runs, still
+# detects, and still commits dedupe state so the data accrues for later analysis —
+# it just never reaches an inbox. See alerting/dispatch.py and main.alert_delivered.
 #
-# To re-enable SMS: add "sms" back to the rows above AND set TWILIO_SID,
-# TWILIO_AUTH, TWILIO_FROM and ALERT_PHONE as repository secrets. Nothing else
-# needs to change — the sender and its routing code are untouched and tested.
+# POLICY (operator, 2026-09-03): the alert set is FIRST-PARTY APPEARANCES by
+# Gavin Baker or Leopold Aschenbrenner, plus SEC filings for the two tracked
+# entities. Everything else — news commentary, third-party clips, recaps,
+# reaction videos — is captured silently.
+#
+# SMS is unrouted everywhere; the Twilio secrets are unset by decision.
 alert_routing:
-  filing_13f:        ["email"]
-  filing_sc13:       ["email"]
-  filing_form4:      ["email"]
-  filing_other:      ["email"]
-  youtube_high:      ["email"]
-  youtube_medium:    ["email"]
-  podcast_rss:       ["email"]
-  google_news:       ["email"]
-  cnbc_video:        ["email"]
-  conference_change: ["email"]
-  leopold_post:      ["email"]
-  website_diff:      ["email"]
+  # --- SEC filings: always alert. Low volume, highest signal. ---
+  filing_13f:        ["email"]   # 13F-HR / 13F-HR/A
+  filing_sc13:       ["email"]   # SC 13D / 13G and amendments
+  filing_form4:      ["email"]   # insider transactions for a tracked entity
+  filing_other:      []          # SILENT: unmapped/other forms, no defined signal
+
+  # --- First-party appearances: alert. ---
+  youtube_high:      ["email"]   # HIGH now requires a KNOWN publisher channel
+  podcast_rss:       ["email"]   # gated to first-party appearances in the monitor
+  cnbc_video:        ["email"]   # a CNBC hit IS the person on camera
+  leopold_post:      ["email"]   # Leopold writing on situational-awareness.com
+  conference_change: ["email"]   # a speaker page naming him = an upcoming appearance
+
+  # --- Derivative / commentary: capture, never alert. ---
+  youtube_medium:    []          # SILENT: unknown channel => clip, recap, reaction
+  google_news:       []          # SILENT: ~92% of volume, commentary not events
+  website_diff:      []          # SILENT: any-diff page hash, no first-party signal
 
 # ---- Alert recipient references (env var NAMES, not values) ----
 # The loader stores the env-var name; the alerter (Prompt 2) resolves via os.environ.

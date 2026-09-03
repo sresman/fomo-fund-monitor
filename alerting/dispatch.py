@@ -27,6 +27,10 @@ split is load-bearing for the orchestrator's dedupe commit:
   * FAILED    -- listed in ``channels_attempted`` with the reason in ``errors``.
                  The channel WAS configured, was tried, and the send failed.
                  This is what holds back the commit so the event re-fires.
+
+An event type routed to NO channels (``alert_routing: []`` in config) is a
+SILENT CAPTURE: ``routed`` is empty, nothing is attempted, and the orchestrator
+commits its dedupe state anyway so the data accrues without reaching an inbox.
 """
 
 from dataclasses import dataclass
@@ -53,6 +57,11 @@ REASON_SENDER_DISABLED: str = "channel disabled (no sender configured)"
 @dataclass(frozen=True)
 class DispatchResult:
     event: DetectedEvent
+    # What the routing matrix asked for. EMPTY means the event type is routed to
+    # NO channels on purpose -- "capture it, commit dedupe state, tell nobody".
+    # Distinct from "routed somewhere but every channel was skipped", which is a
+    # misconfiguration; the orchestrator relies on the difference.
+    routed: tuple[AlertChannel, ...]
     # Channels that were configured and actually tried (sent OR failed).
     channels_attempted: tuple[AlertChannel, ...]
     channels_sent: tuple[AlertChannel, ...]
@@ -85,6 +94,7 @@ class Dispatcher:
         if self._dry_run:
             return DispatchResult(
                 event=event,
+                routed=(),
                 channels_attempted=(),
                 channels_sent=(),
                 channels_skipped=(),
@@ -99,6 +109,7 @@ class Dispatcher:
         except Exception as exc:  # noqa: BLE001 -- formatting failure ⇒ event_error
             return DispatchResult(
                 event=event,
+                routed=(),
                 channels_attempted=(),
                 channels_sent=(),
                 channels_skipped=(),
@@ -164,6 +175,7 @@ class Dispatcher:
 
         return DispatchResult(
             event=event,
+            routed=alert.channels,
             channels_attempted=tuple(attempted),
             channels_sent=tuple(sent),
             channels_skipped=tuple(channels_skipped),
@@ -187,6 +199,7 @@ class Dispatcher:
                 results.append(
                     DispatchResult(
                         event=event,
+                        routed=(),
                         channels_attempted=(),
                         channels_sent=(),
                         channels_skipped=(),

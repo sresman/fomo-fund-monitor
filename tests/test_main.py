@@ -108,8 +108,10 @@ class FakeResult:
         channels_sent: tuple[AlertChannel, ...] | None = None,
         channels_skipped: tuple[AlertChannel, ...] = (),
         skipped_reasons: dict[AlertChannel, str] | None = None,
+        routed: tuple[AlertChannel, ...] = (AlertChannel.EMAIL,),
     ) -> None:
         self.event = event
+        self.routed: tuple[AlertChannel, ...] = routed
         self.errors: dict[AlertChannel, str] = errors or {}
         self.event_error = event_error
         # No explicit channels_sent => delivered on EMAIL iff nothing went wrong.
@@ -129,6 +131,7 @@ def make_result(
     channels_sent: tuple[AlertChannel, ...] | None = None,
     channels_skipped: tuple[AlertChannel, ...] = (),
     skipped_reasons: dict[AlertChannel, str] | None = None,
+    routed: tuple[AlertChannel, ...] = (AlertChannel.EMAIL,),
 ) -> FakeResult:
     return FakeResult(
         event,
@@ -137,6 +140,7 @@ def make_result(
         channels_sent=channels_sent,
         channels_skipped=channels_skipped,
         skipped_reasons=skipped_reasons,
+        routed=routed,
     )
 
 
@@ -206,10 +210,12 @@ class FakeDispatcher:
         *,
         skipped_by_id: dict[str, dict[AlertChannel, str]] | None = None,
         sent_by_id: dict[str, tuple[AlertChannel, ...]] | None = None,
+        routed_by_id: dict[str, tuple[AlertChannel, ...]] | None = None,
     ) -> None:
         self._errors_by_id = errors_by_id or {}
         self._skipped_by_id = skipped_by_id or {}
         self._sent_by_id = sent_by_id or {}
+        self._routed_by_id = routed_by_id or {}
         self.dispatched: list[DetectedEvent] = []
 
     def dispatch_events(
@@ -226,6 +232,9 @@ class FakeDispatcher:
                     channels_sent=self._sent_by_id.get(e.identifier),
                     channels_skipped=tuple(skipped),
                     skipped_reasons=dict(skipped) or None,
+                    routed=self._routed_by_id.get(
+                        e.identifier, (AlertChannel.EMAIL,)
+                    ),
                 )
             )
         return results
@@ -479,6 +488,35 @@ def test_unconfigured_channel_logged_once_per_channel_not_per_event(
     assert "TWILIO_SID" in lines[0]
 
 
+def test_silent_capture_commits_without_alerting() -> None:
+    """alert_routing: [] means capture-and-commit. The event must commit so the
+    data accrues; without this the monitor re-detects it forever."""
+    commit_log: list[tuple[str, str]] = []
+    ev = make_event(identifier="e1")
+    store = FakeStore()
+    dispatcher = FakeDispatcher(sent_by_id={"e1": ()}, routed_by_id={"e1": ()})
+    spec = _spec(MonitorName.GOOGLE_NEWS, [ev], commit_log=commit_log)
+    assert _run(store=store, dispatcher=dispatcher, monitors=[spec]) == 0
+    assert commit_log == [("google_news", "e1")]
+
+
+def test_routed_but_nothing_delivered_still_does_not_commit() -> None:
+    """The opposite case, which looks identical in channels_sent: routed
+    somewhere and nothing got through is an OUTAGE, not a silent capture."""
+    commit_log: list[tuple[str, str]] = []
+    ev = make_event(identifier="e1")
+    store = FakeStore()
+    dispatcher = FakeDispatcher(
+        sent_by_id={"e1": ()},
+        routed_by_id={"e1": (AlertChannel.EMAIL,)},
+        skipped_by_id={"e1": {AlertChannel.EMAIL: "missing ...: GMAIL_USER"}},
+    )
+    spec = _spec(MonitorName.EDGAR, [ev], commit_log=commit_log)
+    with pytest.raises(AlertDeliveryError):
+        _run(store=store, dispatcher=dispatcher, monitors=[spec])
+    assert commit_log == []
+
+
 def test_alert_delivered_predicate() -> None:
     """Unit-level truth table for the commit predicate."""
     ev = make_event(identifier="e1")
@@ -492,8 +530,12 @@ def test_alert_delivered_predicate() -> None:
         make_result(ev, errors={AlertChannel.EMAIL: "boom"},
                     channels_sent=(AlertChannel.SMS,))
     )
-    # Nothing delivered -> not OK.
-    assert not alert_delivered(make_result(ev, channels_sent=()))
+    # Nothing delivered, but something WAS routed -> not OK (an outage).
+    assert not alert_delivered(
+        make_result(ev, channels_sent=(), routed=(AlertChannel.EMAIL,))
+    )
+    # Nothing delivered because nothing was routed -> OK (a silent capture).
+    assert alert_delivered(make_result(ev, channels_sent=(), routed=()))
     # Formatting failure -> not OK.
     assert not alert_delivered(make_result(ev, event_error="bad format"))
 
