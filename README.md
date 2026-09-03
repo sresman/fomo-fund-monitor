@@ -83,6 +83,14 @@ Re-emits alerts for events published on or after a date, through the real send
 path. It never writes state and never touches dedupe, so it is safe to run
 repeatedly — it re-sends every time, which is the point.
 
+Run it from **GitHub Actions**, not locally: the "Replay Alerts" workflow
+(`.github/workflows/replay.yml`) has the working Gmail secrets, so the app
+password never needs to exist on a laptop. Actions → Replay Alerts → Run
+workflow, set `since`, and untick `dry_run` when you actually want it to send
+(it defaults to a preview).
+
+The same CLI exists locally if the env vars are present:
+
 ```bash
 python main.py --replay-since 2026-08-14 --dry-run     # preview first
 python main.py --replay-since 2026-08-14               # edgar only (the default)

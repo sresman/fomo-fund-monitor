@@ -1,0 +1,86 @@
+name: Replay Alerts
+
+# Manual re-send of alerts for past events, run HERE rather than from a laptop
+# so the Gmail app password never leaves GitHub secrets.
+#
+# Replay never writes state and never fires the repository_dispatch bridge, so
+# it cannot corrupt dedupe no matter how often it runs. It DOES re-send every
+# time -- that is the point.
+on:
+  workflow_dispatch:
+    inputs:
+      since:
+        description: "Re-emit events published on or after this date (YYYY-MM-DD)"
+        required: true
+        type: string
+      monitor:
+        description: "Which monitor to replay"
+        required: false
+        default: edgar
+        type: choice
+        options: [edgar, podcast_rss, youtube, cnbc, google_news]
+      limit:
+        description: "Cap at the N most recent matches (blank = no limit)"
+        required: false
+        type: string
+      dry_run:
+        description: "Preview only -- list what would be sent, send nothing"
+        required: false
+        # Defaults to TRUE on purpose: an accidental dispatch must not fire a
+        # batch of real email. Untick it deliberately to actually send.
+        default: true
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fomo-fund-monitor-replay
+  cancel-in-progress: false
+
+jobs:
+  replay:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Replay
+        env:
+          YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
+          GMAIL_USER: ${{ secrets.GMAIL_USER }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          ALERT_EMAIL: ${{ secrets.ALERT_EMAIL }}
+          SINCE: ${{ inputs.since }}
+          MONITOR: ${{ inputs.monitor }}
+          LIMIT: ${{ inputs.limit }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        # Args are assembled from env rather than interpolated into the shell,
+        # so a workflow input can never be executed as a command.
+        run: |
+          args=(--replay-since "$SINCE" --monitor "$MONITOR")
+          if [ -n "$LIMIT" ]; then args+=(--limit "$LIMIT"); fi
+          if [ "$DRY_RUN" = "true" ]; then args+=(--dry-run); fi
+          echo "Running: python main.py ${args[*]}"
+          python main.py "${args[@]}"
+
+      - name: Confirm state was not modified
+        # Replay must never write state. If this ever fails, the run touched
+        # something it should not have.
+        run: |
+          if ! git diff --quiet -- state/; then
+            echo "::error::replay modified state/ -- this must never happen"
+            git --no-pager diff --stat -- state/
+            exit 1
+          fi
+          echo "state/ unchanged, as expected."
