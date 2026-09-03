@@ -417,3 +417,60 @@ pass. Re-enabling is a config edit plus four secrets; the comment in
 **Effect on the current backlog.** The 2 EDGAR + 7 podcast events that had been
 failing on SMS and re-alerting every run will now dispatch email-only, succeed,
 and commit — ending the duplicate loop.
+
+---
+
+## 2026-09-03 — Commit 9: --backfill-seeds (feed seed-gap repair)
+
+**Diagnosis first, and it corrected my own earlier claim.** I had told the
+operator a "1,470-item back catalogue is leaking out as new". Auditing every
+configured feed against state showed the gap is far smaller and specific:
+
+| feed | items | kw-matches | seeded | gap |
+|---|---|---|---|---|
+| This Week in Startups | 1470 | 5 | 1 | **4** |
+| All-In | 413 | 28 | 27 | 1 |
+| a16z | 1000 | 4 | 3 | 1 |
+| Invested by Aleph | 79 | 3 | 2 | 1 |
+| Dwarkesh | 139 | 1 | 0 | 1 |
+| ILTB / Capital Allocators / BG2 / Bankless / TBPN / Generating Alpha | — | 16 | 16 | 0 |
+
+8 unseeded, of which **4 are legitimately new** (published after the 2026-08-09
+seed: All-In 08-14, TWiST 08-28, Aleph 08-12, a16z 08-31) and must still alert.
+Only **3** are true seed misses, all on TWiST (2022-07-16, 2023-06-19,
+2024-08-07). The Dwarkesh 2024-06-04 Leopold episode is a fourth miss but that
+feed has NEVER fetched successfully, so it has no seed marker and is genuinely
+first-run.
+
+**Root cause.** A feed's visible WINDOW is not stable. Libsyn/Substack serve a
+truncated window sometimes and the full archive at others. Anything outside the
+window at seed time looks brand-new when it later appears.
+
+**Decision SD-A34 — strictly-older-than-seed, dated, and already-seeded only.**
+Three conservative gates, all in the same direction: suppressing a real alert is
+worse than sending a duplicate.
+  * `published < seed_date` strictly. An entry ON the seed date is ambiguous.
+  * `published is None` is NEVER backfilled — cannot be proven old.
+  * A feed with no seed marker is skipped — genuinely first-run.
+
+**Decision SD-A35 (CAUGHT DURING IMPLEMENTATION) — `website_diff` check_rss
+sites are OUT of scope.** I first included them, since they share the
+`rss_guids` bucket. A test failure exposed that `_check_rss_site` fetches
+`<site.url>/feed`, not `site.url` — my version would have scanned the HTML
+homepage. It also restricts the RSS branch to `LEOPOLD_POST` sites and gates on
+feedparser recognising a real feed. Reproducing three rules in a second place,
+where getting any one wrong PERMANENTLY SUPPRESSES real posts, is a bad trade for
+zero benefit: the one configured check_rss site has never seeded, so it has
+nothing to backfill. Excluded, documented, and pinned by
+`test_website_diff_rss_sites_are_out_of_scope` so it is not "fixed" by accident.
+
+**Decision SD-A36 — purely additive and idempotent.** Only appends to
+`rss_guids` via `merge_appearances`; never removes an id, never touches a marker.
+A second run finds nothing. `find_missed` is read-only; only `backfill_seeds`
+writes, and `--dry-run` writes nothing.
+
+**Open issue (NOT fixed here).** The Dwarkesh feed
+(`https://api.substack.com/feed/podcast/69345.rss`) has failed on every run since
+2026-08-09 and is still first-run, so the Leopold 2027-AGI episode has never been
+seeded or alerted. That is a fetch problem, not a seeding one — needs its own
+look at whether Substack is blocking the User-Agent.

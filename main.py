@@ -15,6 +15,7 @@ CLI::
     python main.py --dry-run                  # ... sending nothing
     python main.py --replay-since 2026-08-14  # re-emit past alerts (edgar only)
     python main.py --replay-since 2026-08-14 --monitor youtube --limit 10
+    python main.py --backfill-seeds --dry-run # seed pre-seed entries the seed missed
 
 Replay lives in ``replay.py`` and is imported lazily, so a normal cron pass never
 pays for it.
@@ -773,11 +774,21 @@ def build_arg_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--backfill-seeds",
+        action="store_true",
+        help=(
+            "One-shot maintenance: silently seed archival-feed entries published "
+            "BEFORE their feed's seed date that the original seed missed (a feed "
+            "can serve a truncated window at seed time and its full archive "
+            "later, making old episodes look new). Sends no alerts. Idempotent."
+        ),
+    )
+    parser.add_argument(
         "--dry-run",
         action="store_true",
         help=(
-            "List what would be sent without sending anything. Applies to a "
-            "replay or to a normal pass."
+            "List what would be sent/seeded without sending or writing anything. "
+            "Applies to a replay, a backfill, or a normal pass."
         ),
     )
     return parser
@@ -799,6 +810,15 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     args = build_arg_parser().parse_args(argv)
     now = datetime.now(timezone.utc)
+
+    if args.backfill_seeds:
+        if args.replay_since is not None:
+            raise SystemExit("--backfill-seeds and --replay-since are exclusive")
+        # Deferred: a normal cron pass must not pay for the backfill module.
+        from backfill import backfill_seeds
+
+        backfill_seeds(dry_run=args.dry_run)
+        return 0
 
     if args.replay_since is None:
         if args.monitors or args.limit is not None:
