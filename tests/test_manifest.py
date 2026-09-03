@@ -46,9 +46,23 @@ def test_top_level_not_a_list_returns_empty(
     assert caplog.records
 
 
-def test_real_manifest_has_zero_youtube_urls() -> None:
-    # The real copied manifest currently has ZERO YouTube urls.
-    assert load_manifest_youtube_ids(REAL_MANIFEST) == set()
+def test_real_manifest_feeds_youtube_dedupe() -> None:
+    """INVERTED 2026-09-03. This test previously asserted the real manifest has
+    ZERO YouTube urls -- pinning the defect as expected behaviour.
+
+    The manifest IS the YouTube dedupe source, and every url in it was an mp3 or
+    a Colossus page, so load_manifest_youtube_ids returned an empty set and the
+    file deduped nothing for the life of the repo. It is now generated from the
+    celeb-pm corpus by tools/build_master_manifest.py, which attaches a
+    youtube_url to every row whose transcript came from YouTube.
+
+    Asserted as a floor, not an exact count, so adding corpus appearances does
+    not break the suite.
+    """
+    ids = load_manifest_youtube_ids(REAL_MANIFEST)
+    assert len(ids) >= 30, f"expected the manifest to carry YouTube ids, got {len(ids)}"
+    # A known transcribed appearance: ILTB 2026-08-04 "AI Market Jitters".
+    assert "NGsi2PC4y68" in ids
 
 
 def test_sample_manifest_extracts_expected_ids() -> None:

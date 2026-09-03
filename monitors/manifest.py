@@ -3,13 +3,19 @@ from __future__ import annotations
 """Master-manifest YouTube-ID loader (Prompt 4).
 
 ``load_manifest_youtube_ids(path) -> set[str]`` reads the transcript master
-manifest (a JSON list of dicts, each with an optional ``url``) and extracts the
-set of YouTube video ids present, used by ``monitors/youtube.py`` to skip videos
-already transcribed. Defensive: any problem (missing file, malformed JSON, wrong
-container shape) logs a WARNING and returns ``set()`` -- it NEVER raises. YouTube
-dedupe then relies on state alone. The current real manifest has ZERO YouTube
-urls, so this returns ``set()`` today; the loader is future-proofed for when YT
-urls are added.
+manifest (a JSON list of dicts) and extracts the set of YouTube video ids
+present, used by ``monitors/youtube.py`` to skip videos already transcribed.
+Defensive: any problem (missing file, malformed JSON, wrong container shape) logs
+a WARNING and returns ``set()`` -- it NEVER raises. YouTube dedupe then relies on
+state alone.
+
+TWO fields are scanned per row, ``url`` and ``youtube_url`` (see
+``_URL_FIELDS``). ``url`` is the row's primary source link, which for a
+transcribed podcast is an mp3 -- so before ``youtube_url`` existed this loader
+returned an EMPTY set against the real manifest and contributed nothing to
+dedupe, silently. ``youtube_url`` carries the watch URL for rows whose transcript
+came from YouTube, and is populated by ``tools/build_master_manifest.py`` from
+the celeb-pm corpus. A row may legitimately have both.
 
 Id extraction uses ``urllib.parse.urlparse`` + a host allowlist
 (``YOUTUBE_MANIFEST_HOSTS``) + a bounded exactly-11-char id regex, which rejects
@@ -32,6 +38,10 @@ _log = logging.getLogger(__name__)
 # Anchored, exactly-11-char YouTube id shape (correct alphabet). A 12-char run
 # does NOT match because of the anchored ``$``.
 _YT_ID_RE = re.compile(r"^[A-Za-z0-9_-]{11}$")
+
+# Row fields scanned for a YouTube watch URL, in order. ``url`` is the primary
+# source link (often an mp3); ``youtube_url`` is the transcript's video.
+_URL_FIELDS: tuple[str, ...] = ("url", "youtube_url")
 
 
 def _extract_youtube_id(url: str) -> str | None:
@@ -96,10 +106,11 @@ def load_manifest_youtube_ids(path: Path) -> set[str]:
     for entry in obj:
         if not isinstance(entry, dict):
             continue
-        url = entry.get("url")
-        if not isinstance(url, str) or url == "":
-            continue
-        video_id = _extract_youtube_id(url)
-        if video_id is not None:
-            ids.add(video_id)
+        for field in _URL_FIELDS:
+            url = entry.get(field)
+            if not isinstance(url, str) or url == "":
+                continue
+            video_id = _extract_youtube_id(url)
+            if video_id is not None:
+                ids.add(video_id)
     return ids

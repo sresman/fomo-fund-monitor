@@ -7,7 +7,7 @@
     "topic": "Tech and consumer growth investing (EP.149)",
     "filepath": "transcripts/whisper/2019-11-26_iltb_tech_consumer_2019nov.txt",
     "quality": "whisper_small",
-    "status": "ok",
+    "status": "skipped_exists",
     "url": "https://traffic.megaphone.fm/CLS1681572012.mp3?updated=1767976359"
   },
   {
@@ -18,7 +18,7 @@
     "topic": "Investing through a bear market (EP.167)",
     "filepath": "transcripts/whisper/2020-04-02_iltb_bear_market_2020apr.txt",
     "quality": "whisper_small",
-    "status": "ok",
+    "status": "skipped_exists",
     "url": "https://traffic.megaphone.fm/CLS7260329163.mp3?updated=1767975880"
   },
   {
@@ -30,7 +30,8 @@
     "filepath": "transcripts/youtube/2020-05-07_columbia_sima_investing_2020may_kFY30zE9td0.txt",
     "quality": "youtube_auto",
     "status": "skipped_exists",
-    "url": null
+    "url": null,
+    "youtube_url": "https://www.youtube.com/watch?v=kFY30zE9td0"
   },
   {
     "date": "2020-07-27",
@@ -41,7 +42,8 @@
     "filepath": "transcripts/youtube/2020-07-27_koyfin_investing_wizards_ep6_2020jul_NlZhF_pULfo.txt",
     "quality": "youtube_auto",
     "status": "skipped_exists",
-    "url": null
+    "url": null,
+    "youtube_url": "https://www.youtube.com/watch?v=NlZhF_pULfo"
   },
   {
     "date": "2020-09-25",
@@ -63,7 +65,8 @@
     "filepath": "transcripts/youtube/2020-11-15_sohn_australia_2020_omnichannel_dqYbDqz500c.txt",
     "quality": "youtube_auto",
     "status": "skipped_exists",
-    "url": null
+    "url": null,
+    "youtube_url": "https://www.youtube.com/watch?v=dqYbDqz500c"
   },
   {
     "date": "2021-08-09",
@@ -107,14 +110,15 @@
     "filepath": "transcripts/youtube/2021-11-30_vspartners_global_tech_2021nov_RKNTt-HZG2E.txt",
     "quality": "youtube_auto",
     "status": "skipped_exists",
-    "url": null
+    "url": null,
+    "youtube_url": "https://www.youtube.com/watch?v=RKNTt-HZG2E"
   },
   {
     "date": "2021-12-03",
     "source": "Sohn Hearts & Minds Australia 2021 (secondary coverage)",
     "label": "sohn_australia_2021_coinbase",
     "host": "Sohn Hearts & Minds Australia 2021",
-    "topic": "Stock pick: Coinbase (COIN) \u2014 Coinbase Cloud as the AWS of crypto / web3 infra",
+    "topic": "Stock pick: Coinbase (COIN) — Coinbase Cloud as the AWS of crypto / web3 infra",
     "filepath": "transcripts/web/2021-12-03_sohn_australia_2021_coinbase.txt",
     "quality": "secondary_coverage",
     "status": "ok",
@@ -128,7 +132,7 @@
     "topic": "The cyclone under the surface (EP.260)",
     "filepath": "transcripts/whisper/2022-01-25_iltb_cyclone_surface_2022jan.txt",
     "quality": "whisper_small",
-    "status": "ok",
+    "status": "skipped_exists",
     "url": "https://traffic.megaphone.fm/CLS3655748149.mp3?updated=1767969764"
   },
   {
@@ -140,7 +144,8 @@
     "filepath": "transcripts/youtube/2022-03-25_onthetape_fear_market_killer_2022mar_mgM-UWPlc3E.txt",
     "quality": "youtube_auto",
     "status": "skipped_exists",
-    "url": null
+    "url": null,
+    "youtube_url": "https://www.youtube.com/watch?v=mgM-UWPlc3E"
   },
   {
     "date": "2022-04-08",
@@ -154,6 +159,22 @@
     "url": "https://themarket.ch/interview/there-is-no-playbook-ld.6422"
   },
   {
+    "date": "2022-10-15",
+    "source": "Boston Investment Conference 2022",
+    "label": "bic_2022",
+    "host": "Boston Investment Conference",
+    "topic": "Unknown — private event, no public recording",
+    "filepath": null,
+    "quality": "private_event",
+    "status": "new_from_audit",
+    "url": "https://bostoninvestmentconference.com/past-speakers",
+    "confidence": "medium",
+    "format": "private_conference",
+    "found_by": "cowork",
+    "has_transcript": false,
+    "notes": "BIC typically held in October. Charity event. No public recording expected. Check secondary sources for tickers/theses."
+  },
+  {
     "date": "2023-04-21",
     "source": "All-In Podcast",
     "label": "allin_e125_spacex_starship_2023apr",
@@ -162,7 +183,8 @@
     "filepath": "transcripts/youtube/2023-04-21_allin_e125_spacex_starship_2023apr_WvTTDxMuAis.txt",
     "quality": "youtube_auto",
     "status": "skipped_exists",
-    "url": null
+    "url": null,
+    "youtube_url": "https://www.youtube.com/watch?v=WvTTDxMuAis"
   },
   {
     "date": "2023-06-19",
@@ -173,7 +195,24 @@
     "filepath": "transcripts/youtube/2023-06-19_twist_ai_platform_shift_2023jun_H_q0w2qSyGY.txt",
     "quality": "youtube_auto",
     "status": "skipped_exists",
-    "url": null
+    "url": null,
+    "youtube_url": "https://www.youtube.com/watch?v=H_q0w2qSyGY"
+  },
+  {
+    "date": "2023-11-15",
+    "source": "Boston Investment Conference 2023",
+    "label": "bic_2023",
+    "host": "Boston Investment Conference",
+    "topic": "Unknown — private event, no public recording",
+    "filepath": null,
+    "quality": "private_event",
+    "status": "new_from_audit",
+    "url": "https://bostoninvestmentconference.com/speakers/gavin-baker-0",
+    "confidence": "high",
+    "format": "private_conference",
+    "found_by": "cowork",
+    "has_transcript": false,
+    "notes": "Confirmed via TheMarque profile. November 2023."
   },
   {
     "date": "2024-01-30",
@@ -184,7 +223,8 @@
     "filepath": "transcripts/youtube/2024-01-30_iconn_globalalts_2024_gracias_baker_gurley_MWE5LsO62wA.txt",
     "quality": "youtube_auto",
     "status": "skipped_exists",
-    "url": null
+    "url": null,
+    "youtube_url": "https://www.youtube.com/watch?v=MWE5LsO62wA"
   },
   {
     "date": "2024-02-23",
@@ -195,7 +235,8 @@
     "filepath": "transcripts/youtube/2024-02-23_fii_gigafirm_trillion_dollar_2024feb_esWMssGq-G0.txt",
     "quality": "youtube_auto",
     "status": "skipped_exists",
-    "url": null
+    "url": null,
+    "youtube_url": "https://www.youtube.com/watch?v=esWMssGq-G0"
   },
   {
     "date": "2024-07-01",
@@ -206,7 +247,8 @@
     "filepath": "transcripts/youtube/2024-07-01_thematic_investors_scifi_history_2024jul_tIxEBEu2Kew.txt",
     "quality": "youtube_auto",
     "status": "skipped_exists",
-    "url": null
+    "url": null,
+    "youtube_url": "https://www.youtube.com/watch?v=tIxEBEu2Kew"
   },
   {
     "date": "2024-08-07",
@@ -217,7 +259,8 @@
     "filepath": "transcripts/youtube/2024-08-07_twist_e1990_liquidity_gracias_2024aug_4YXMZhsVClI.txt",
     "quality": "youtube_auto",
     "status": "skipped_exists",
-    "url": null
+    "url": null,
+    "youtube_url": "https://www.youtube.com/watch?v=4YXMZhsVClI"
   },
   {
     "date": "2024-08-27",
@@ -227,8 +270,24 @@
     "topic": "AI, semiconductors, and the robotic frontier (EP.385)",
     "filepath": "transcripts/whisper/2024-08-27_iltb_ai_semis_robotic_2024aug.txt",
     "quality": "whisper_small",
-    "status": "ok",
+    "status": "skipped_exists",
     "url": "https://traffic.megaphone.fm/CLS3009851426.mp3?updated=1767957377"
+  },
+  {
+    "date": "2024-10-24",
+    "source": "Boston Investment Conference 2024",
+    "label": "bic_2024",
+    "host": "Boston Investment Conference",
+    "topic": "Unknown — private event, no public recording",
+    "filepath": null,
+    "quality": "private_event",
+    "status": "new_from_audit",
+    "url": "https://bostoninvestmentconference.com/speakers/gavin-baker",
+    "confidence": "high",
+    "format": "private_conference",
+    "found_by": "cowork",
+    "has_transcript": false,
+    "notes": "InterContinental Boston. Dedicated 2024 speaker page."
   },
   {
     "date": "2024-12-07",
@@ -239,7 +298,8 @@
     "filepath": "transcripts/youtube/2024-12-07_allin_sec_bitcoin_xai_2024dec_K2xfW3hgxb4.txt",
     "quality": "youtube_auto",
     "status": "skipped_exists",
-    "url": null
+    "url": null,
+    "youtube_url": "https://www.youtube.com/watch?v=K2xfW3hgxb4"
   },
   {
     "date": "2025-01-04",
@@ -250,7 +310,8 @@
     "filepath": "transcripts/youtube/2025-01-04_allin_2025_predictions_2025jan_HxNUAwBWX4I.txt",
     "quality": "youtube_auto",
     "status": "skipped_exists",
-    "url": null
+    "url": null,
+    "youtube_url": "https://www.youtube.com/watch?v=HxNUAwBWX4I"
   },
   {
     "date": "2025-01-28",
@@ -261,7 +322,8 @@
     "filepath": "transcripts/youtube/2025-01-28_iconn_globalalts_2025_future_of_ai_UJ3pNPFwAeM.txt",
     "quality": "youtube_auto",
     "status": "skipped_exists",
-    "url": null
+    "url": null,
+    "youtube_url": "https://www.youtube.com/watch?v=UJ3pNPFwAeM"
   },
   {
     "date": "2025-03-29",
@@ -272,7 +334,8 @@
     "filepath": "transcripts/youtube/2025-03-29_allin_e221_coreweave_ipo_2025mar_Iazo7g40VbQ.txt",
     "quality": "youtube_auto",
     "status": "skipped_exists",
-    "url": null
+    "url": null,
+    "youtube_url": "https://www.youtube.com/watch?v=Iazo7g40VbQ"
   },
   {
     "date": "2025-05-28",
@@ -294,7 +357,24 @@
     "filepath": "transcripts/youtube/2025-07-17_allin_tariffs_agi_prize_2025jul_wu-p5xrJ8-E.txt",
     "quality": "youtube_auto",
     "status": "skipped_exists",
-    "url": null
+    "url": null,
+    "youtube_url": "https://www.youtube.com/watch?v=wu-p5xrJ8-E"
+  },
+  {
+    "date": "2025-10-15",
+    "source": "Boston Investment Conference 2025",
+    "label": "bic_2025",
+    "host": "Boston Investment Conference",
+    "topic": "Unknown — private event, no public recording",
+    "filepath": null,
+    "quality": "private_event",
+    "status": "new_from_audit",
+    "url": "https://bostoninvestmentconference.com/past-speakers",
+    "confidence": "medium",
+    "format": "private_conference",
+    "found_by": "cowork",
+    "has_transcript": false,
+    "notes": "BIC typically held in October."
   },
   {
     "date": "2025-10-22",
@@ -305,7 +385,8 @@
     "filepath": "transcripts/youtube/2025-10-22_aleph_semis_globalwarming_2025oct_ugihLT9cFTE.txt",
     "quality": "youtube_auto",
     "status": "skipped_exists",
-    "url": null
+    "url": null,
+    "youtube_url": "https://www.youtube.com/watch?v=ugihLT9cFTE"
   },
   {
     "date": "2025-10-30",
@@ -316,7 +397,8 @@
     "filepath": "transcripts/youtube/2025-10-30_a16z_ai_bubble_david_george_2025oct_5ze3ZNvOdRY.txt",
     "quality": "youtube_auto",
     "status": "skipped_exists",
-    "url": null
+    "url": null,
+    "youtube_url": "https://www.youtube.com/watch?v=5ze3ZNvOdRY"
   },
   {
     "date": "2025-12-09",
@@ -327,18 +409,20 @@
     "filepath": "transcripts/youtube/2025-12-09_iltb_gpus_tpus_ai_economics_2025dec_yt_cmUo4841KQw.txt",
     "quality": "youtube_auto",
     "status": "skipped_exists",
-    "url": null
+    "url": null,
+    "youtube_url": "https://www.youtube.com/watch?v=cmUo4841KQw"
   },
   {
     "date": "2026-02-24",
     "source": "iConnections Global Alts 2026",
     "label": "iconn_globalalts_2026_gracias_baker",
     "host": "Antonio Gracias (panel)",
-    "topic": "AI, Tesla, defense, energy \u2014 what comes next",
+    "topic": "AI, Tesla, defense, energy — what comes next",
     "filepath": "transcripts/youtube/2026-02-24_iconn_globalalts_2026_gracias_baker_s4QVoht3YsI.txt",
     "quality": "youtube_auto",
     "status": "skipped_exists",
-    "url": null
+    "url": null,
+    "youtube_url": "https://www.youtube.com/watch?v=s4QVoht3YsI"
   },
   {
     "date": "2026-03-02",
@@ -349,7 +433,20 @@
     "filepath": "transcripts/youtube/2026-03-02_capital_allocators_2026_crossover_CFtlGhmAeM0.txt",
     "quality": "youtube_auto",
     "status": "skipped_exists",
-    "url": null
+    "url": null,
+    "youtube_url": "https://www.youtube.com/watch?v=CFtlGhmAeM0"
+  },
+  {
+    "date": "2026-04-16",
+    "source": "Aria Networks",
+    "label": "aria_networks_mfu_ai_factories_2026apr",
+    "host": "Aria Networks (product launch)",
+    "topic": "MFU (Model Flop Utilization) as the defining AI-factory metric; lowest-cost token producer wins → deploy highest-performance infra, not cheapest",
+    "filepath": "transcripts/youtube/2026-04-16_aria_networks_mfu_ai_factories_2026apr_MmNWwIYFBeI.txt",
+    "quality": "youtube_auto",
+    "status": "skipped_exists",
+    "url": null,
+    "youtube_url": "https://www.youtube.com/watch?v=MmNWwIYFBeI"
   },
   {
     "date": "2026-05-12",
@@ -371,7 +468,8 @@
     "filepath": "transcripts/youtube/2026-05-12_sohn_ny_2026_tech_investor_2Ryr95iiYNk.txt",
     "quality": "youtube_auto",
     "status": "skipped_exists",
-    "url": null
+    "url": null,
+    "youtube_url": "https://www.youtube.com/watch?v=2Ryr95iiYNk"
   },
   {
     "date": "2026-05-20",
@@ -382,7 +480,8 @@
     "filepath": "transcripts/youtube/2026-05-20_iltb_watts_wafers_2026may_yt_Mmj_G9RlW-I.txt",
     "quality": "youtube_auto",
     "status": "skipped_exists",
-    "url": null
+    "url": null,
+    "youtube_url": "https://www.youtube.com/watch?v=Mmj_G9RlW-I"
   },
   {
     "date": "2026-05-22",
@@ -393,7 +492,8 @@
     "filepath": "transcripts/youtube/2026-05-22_allin_e274_spacex_2t_nvidia_2026may_HGbA6ze0_3M.txt",
     "quality": "youtube_auto",
     "status": "skipped_exists",
-    "url": null
+    "url": null,
+    "youtube_url": "https://www.youtube.com/watch?v=HGbA6ze0_3M"
   },
   {
     "date": "2026-05-28",
@@ -404,7 +504,8 @@
     "filepath": "transcripts/youtube/2026-05-28_limitless_unity_world_models_2026may_yosv2UDCm9M.txt",
     "quality": "youtube_auto",
     "status": "skipped_exists",
-    "url": null
+    "url": null,
+    "youtube_url": "https://www.youtube.com/watch?v=yosv2UDCm9M"
   },
   {
     "date": "2026-06-07",
@@ -415,18 +516,20 @@
     "filepath": "transcripts/youtube/2026-06-07_allin_liquidity_secondaries_2026jun_V0lFjTWx36I.txt",
     "quality": "youtube_auto",
     "status": "skipped_exists",
-    "url": null
+    "url": null,
+    "youtube_url": "https://www.youtube.com/watch?v=V0lFjTWx36I"
   },
   {
     "date": "2026-06-08",
     "source": "Heller House",
     "label": "heller_house_spacex_cfo_2026jun",
     "host": "Gavin Baker (as interviewer)",
-    "topic": "Interview with SpaceX CFO Bret Johnsen at Mission Control \u2014 financial mechanics, Starship timeline, capital risk",
+    "topic": "Interview with SpaceX CFO Bret Johnsen at Mission Control — financial mechanics, Starship timeline, capital risk",
     "filepath": "transcripts/youtube/2026-06-08_heller_house_spacex_cfo_2026jun_jOgbqt04eUk.txt",
     "quality": "youtube_auto",
     "status": "skipped_exists",
-    "url": null
+    "url": null,
+    "youtube_url": "https://www.youtube.com/watch?v=jOgbqt04eUk"
   },
   {
     "date": "2026-06-11",
@@ -437,7 +540,8 @@
     "filepath": "transcripts/youtube/2026-06-11_bg2_spacex_ipo_2026jun_Tx9jT2c6e3U.txt",
     "quality": "youtube_auto",
     "status": "skipped_exists",
-    "url": null
+    "url": null,
+    "youtube_url": "https://www.youtube.com/watch?v=Tx9jT2c6e3U"
   },
   {
     "date": "2026-06-12",
@@ -459,7 +563,8 @@
     "filepath": "transcripts/youtube/2026-06-15_tbpn_spacex_sovereign_ai_2026jun_PW5n3ZnEJN0.txt",
     "quality": "youtube_auto",
     "status": "skipped_exists",
-    "url": null
+    "url": null,
+    "youtube_url": "https://www.youtube.com/watch?v=PW5n3ZnEJN0"
   },
   {
     "date": "2026-06-27",
@@ -470,7 +575,8 @@
     "filepath": "transcripts/youtube/2026-06-27_allin_ai_memory_micron_2026jun_w8ah_tA0yfg.txt",
     "quality": "youtube_auto",
     "status": "skipped_exists",
-    "url": null
+    "url": null,
+    "youtube_url": "https://www.youtube.com/watch?v=w8ah_tA0yfg"
   },
   {
     "date": "2026-07-08",
@@ -481,7 +587,19 @@
     "filepath": "transcripts/youtube/2026-07-08_generating_alpha_ep56_2026jul_FmLGYLQ6DFY.txt",
     "quality": "youtube_auto",
     "status": "skipped_exists",
-    "url": null
+    "url": null,
+    "youtube_url": "https://www.youtube.com/watch?v=FmLGYLQ6DFY"
+  },
+  {
+    "date": "2026-07-14",
+    "source": "a16z Podcast",
+    "label": "a16z_ai_bubble_datacenters_2026jul",
+    "host": "a16z",
+    "topic": "Is AI a bubble? Data centers, GPUs, and the AI economy (Gavin Baker)",
+    "filepath": "transcripts/whisper/2026-07-14_a16z_ai_bubble_datacenters_2026jul.txt",
+    "quality": "whisper_small",
+    "status": "ok",
+    "url": "https://mgln.ai/e/1344/afp-848985-injected.calisto.simplecastaudio.com/3f86df7b-51c6-4101-88a2-550dba782de8/episodes/44297d40-a3b7-4b37-8e5b-3fafa3243a05/audio/128/default.mp3?aid=rss_feed&awCollectionId=3f86df7b-51c6-4101-88a2-550dba782de8&awEpisodeId=44297d40-a3b7-4b37-8e5b-3fafa3243a05&feed=JGE3yC0V"
   },
   {
     "date": "2026-07-20",
@@ -495,67 +613,27 @@
     "url": "https://www.cnbc.com/video/2026/07/20/watch-cnbcs-full-interview-with-early-spacex-investor-gavin-baker.html"
   },
   {
-    "date": "2022-10-15",
-    "source": "Boston Investment Conference 2022",
-    "label": "bic_2022",
-    "host": "Boston Investment Conference",
-    "topic": "Unknown \u2014 private event, no public recording",
-    "filepath": null,
-    "quality": "private_event",
-    "status": "new_from_audit",
-    "url": "https://bostoninvestmentconference.com/past-speakers",
-    "found_by": "cowork",
-    "confidence": "medium",
-    "has_transcript": false,
-    "format": "private_conference",
-    "notes": "BIC typically held in October. Charity event. No public recording expected. Check secondary sources for tickers/theses."
+    "date": "2026-08-04",
+    "source": "Invest Like the Best",
+    "label": "iltb_markets_pricing_ai_wrong_2026aug",
+    "host": "Patrick O'Shaughnessy",
+    "topic": "Why the markets are pricing AI wrong: July 2026 AI/semis selloff ('2022 in a month'), private inference cloud, old-GPU repricing, ~$700B Blackwell/Rubin credit gap",
+    "filepath": "transcripts/youtube/2026-08-04_iltb_markets_pricing_ai_wrong_2026aug_NGsi2PC4y68.txt",
+    "quality": "youtube_auto",
+    "status": "skipped_exists",
+    "url": null,
+    "youtube_url": "https://www.youtube.com/watch?v=NGsi2PC4y68"
   },
   {
-    "date": "2023-11-15",
-    "source": "Boston Investment Conference 2023",
-    "label": "bic_2023",
-    "host": "Boston Investment Conference",
-    "topic": "Unknown \u2014 private event, no public recording",
-    "filepath": null,
-    "quality": "private_event",
-    "status": "new_from_audit",
-    "url": "https://bostoninvestmentconference.com/speakers/gavin-baker-0",
-    "found_by": "cowork",
-    "confidence": "high",
-    "has_transcript": false,
-    "format": "private_conference",
-    "notes": "Confirmed via TheMarque profile. November 2023."
-  },
-  {
-    "date": "2024-10-24",
-    "source": "Boston Investment Conference 2024",
-    "label": "bic_2024",
-    "host": "Boston Investment Conference",
-    "topic": "Unknown \u2014 private event, no public recording",
-    "filepath": null,
-    "quality": "private_event",
-    "status": "new_from_audit",
-    "url": "https://bostoninvestmentconference.com/speakers/gavin-baker",
-    "found_by": "cowork",
-    "confidence": "high",
-    "has_transcript": false,
-    "format": "private_conference",
-    "notes": "InterContinental Boston. Dedicated 2024 speaker page."
-  },
-  {
-    "date": "2025-10-15",
-    "source": "Boston Investment Conference 2025",
-    "label": "bic_2025",
-    "host": "Boston Investment Conference",
-    "topic": "Unknown \u2014 private event, no public recording",
-    "filepath": null,
-    "quality": "private_event",
-    "status": "new_from_audit",
-    "url": "https://bostoninvestmentconference.com/past-speakers",
-    "found_by": "cowork",
-    "confidence": "medium",
-    "has_transcript": false,
-    "format": "private_conference",
-    "notes": "BIC typically held in October."
+    "date": "2026-08-14",
+    "source": "All-In Podcast",
+    "label": "allin_anthropic_ipo_nvidia_500b_2026aug",
+    "host": "Chamath, Jason, Sacks, Friedberg (Baker guest)",
+    "topic": "Anthropic $2T IPO, Zuck's AI manifesto, Nvidia's $500B AI financing, Grok 4.6 / SpaceX AI strategy",
+    "filepath": "transcripts/youtube/2026-08-14_allin_anthropic_ipo_nvidia_500b_2026aug_kVzYGVJ8zUk.txt",
+    "quality": "youtube_auto",
+    "status": "ok",
+    "url": null,
+    "youtube_url": "https://www.youtube.com/watch?v=kVzYGVJ8zUk"
   }
 ]

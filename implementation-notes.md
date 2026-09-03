@@ -474,3 +474,61 @@ writes, and `--dry-run` writes nothing.
 2026-08-09 and is still first-run, so the Leopold 2027-AGI episode has never been
 seeded or alerted. That is a fetch problem, not a seeding one — needs its own
 look at whether Substack is blocking the User-Agent.
+
+---
+
+## 2026-09-03 — Commit 10: generate master_manifest_v2 from the corpus
+
+**Two problems, one of them much worse than the reported one.**
+
+1. *Reported drift.* The file was missing four 2026 appearances (Aria 04-16,
+   a16z 07-14, ILTB 08-04, All-In 08-14) and carried four Boston Investment
+   Conference rows the corpus lacks.
+2. *Found while fixing it.* **Every `url` in the file was an mp3 or a Colossus
+   page — ZERO YouTube URLs.** `load_manifest_youtube_ids` only read `url`, so it
+   returned an empty set and the manifest contributed NOTHING to YouTube dedupe,
+   silently, for the life of the repo. `monitors/manifest.py`'s own docstring
+   recorded this ("The current real manifest has ZERO YouTube urls") as a
+   future-proofing note rather than a defect. Drift was the visible symptom; the
+   file being inert was the actual bug.
+
+**Decision SD-A37 — answer to "can it be generated?": YES.** The corpus has
+everything. `transcripts/_master_manifest.json` is the canonical row set (keyed
+on `label`) and `transcripts/youtube/_manifest.json` maps `label -> video id` for
+all 34 YouTube-sourced transcripts. All 34 labels resolve against the corpus
+master, and 45 of 49 labels already matched the hand-maintained file, so the join
+is clean. `tools/build_master_manifest.py --corpus <celeb-pm>` regenerates it.
+
+**Decision SD-A38 — a MERGE, not a regeneration.** A pure regeneration would
+have silently deleted the four BIC rows (real appearances, absent from the
+corpus) and dropped 18 real source URLs the corpus nulls. Rules, all tested:
+corpus is canonical; manifest-only rows preserved verbatim including their extra
+fields; a non-null existing `url` wins over a corpus null; `youtube_url` attached
+by label; output sorted by (date, label) so a no-change regen is a no-op diff.
+
+**Decision SD-A39 — new `youtube_url` field rather than overwriting `url`.**
+Putting the watch URL in `url` would destroy the mp3/source link. The loader now
+scans both fields (`_URL_FIELDS`). Non-destructive, and a row may carry both.
+
+**Decision SD-A40 — `--check` mode.** Writes nothing, exits 1 when stale. Drift
+is now detectable on demand (and CI-able) instead of discovered months later.
+This is the mechanism that prevents problem 1 recurring; nothing else does,
+because the two repos are separate checkouts.
+
+**Result:** 53 rows (49 corpus + 4 preserved), **34 YouTube ids now reaching
+dedupe, up from 0**. Regeneration is idempotent (`--check` passes immediately
+after a write).
+
+**A test had pinned the defect.** `test_real_manifest_has_zero_youtube_urls`
+asserted `load_manifest_youtube_ids(REAL_MANIFEST) == set()` with the comment
+"The real copied manifest currently has ZERO YouTube urls". It encoded the bug as
+expected behaviour, so the suite went green on a dedupe source that deduped
+nothing. Inverted to `test_real_manifest_feeds_youtube_dedupe`, asserting a floor
+of >= 30 ids (a floor, not an exact count, so adding corpus appearances does not
+break the suite) plus one known id.
+
+**Open question for the operator.** The corpus lives in a different repo, so this
+is a manual step when the corpus changes. Options: (a) run it as part of the
+celeb-pm wrap-up; (b) commit a CI job in celeb-pm that opens a PR here; (c) leave
+it manual and rely on `--check`. I did not choose one -- it is a workflow
+decision across two repos.
