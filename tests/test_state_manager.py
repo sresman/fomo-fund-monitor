@@ -7,8 +7,9 @@ from pathlib import Path
 
 import pytest
 
+import constants
 from errors import StateError
-from state_manager import ConferenceSnapshot, SeenAppearances, StateStore
+from state_manager import ConferenceSnapshot, DigestEntry, SeenAppearances, StateStore
 
 
 def test_first_run_seen_filings_empty(store: StateStore, state_dir: Path) -> None:
@@ -300,3 +301,82 @@ def test_merge_appearances_merges_conference_hashes(store: StateStore) -> None:
     # Markers preserved + new one applied.
     assert reloaded.markers["seeded:other"] == "2026-01-01"
     assert reloaded.markers["seeded:cnbc:q"] == "2026-07-22"
+
+
+# --------------------------------------------------------------------------- #
+# digest queue
+# --------------------------------------------------------------------------- #
+
+
+def _dentry(identifier: str, title: str = "t") -> DigestEntry:
+    return DigestEntry(
+        captured_at="2026-09-03T00:00:00+00:00",
+        event_type="google_news",
+        entity_key="atreides",
+        source="Google News",
+        title=title,
+        url="https://ex.example/x",
+        identifier=identifier,
+        published="2026-09-01",
+    )
+
+
+def test_digest_queue_roundtrip(store: StateStore) -> None:
+    store.append_digest_entries([_dentry("a"), _dentry("b")])
+    assert [e.identifier for e in store.load_digest_queue()] == ["a", "b"]
+
+
+def test_digest_queue_missing_file_is_empty(store: StateStore) -> None:
+    assert store.load_digest_queue() == []
+
+
+def test_digest_queue_dedupes_on_identifier(store: StateStore) -> None:
+    store.append_digest_entries([_dentry("a")])
+    store.append_digest_entries([_dentry("a"), _dentry("b")])
+    assert [e.identifier for e in store.load_digest_queue()] == ["a", "b"]
+
+
+def test_digest_queue_caps_and_drops_oldest(store: StateStore) -> None:
+    """Overflow drops from the FRONT -- the newest week is the one worth
+    reading, and the cap keeps the state file bounded if a heartbeat is missed."""
+    cap = constants.DIGEST_QUEUE_MAX_ENTRIES
+    store.append_digest_entries([_dentry(str(i)) for i in range(cap + 25)])
+    queued = store.load_digest_queue()
+    assert len(queued) == cap
+    assert queued[0].identifier == "25"
+    assert queued[-1].identifier == str(cap + 24)
+
+
+def test_digest_queue_clear(store: StateStore) -> None:
+    store.append_digest_entries([_dentry("a")])
+    store.clear_digest_queue()
+    assert store.load_digest_queue() == []
+
+
+def test_digest_queue_skips_malformed_rows_without_raising(
+    store: StateStore, state_dir: Path
+) -> None:
+    """One bad row must not break a monitoring run or the heartbeat."""
+    state_dir.mkdir(parents=True, exist_ok=True)
+    (state_dir / constants.STATE_FILE_DIGEST_QUEUE).write_text(
+        json.dumps(
+            [
+                {"identifier": "incomplete"},          # missing fields
+                "not-an-object",                       # wrong element type
+                {f: "v" for f in (
+                    "captured_at", "event_type", "entity_key", "source",
+                    "title", "url", "identifier", "published")},
+            ]
+        ),
+        encoding="utf-8",
+    )
+    assert [e.identifier for e in store.load_digest_queue()] == ["v"]
+
+
+def test_digest_queue_wrong_container_raises(
+    store: StateStore, state_dir: Path
+) -> None:
+    state_dir.mkdir(parents=True, exist_ok=True)
+    (state_dir / constants.STATE_FILE_DIGEST_QUEUE).write_text("{}", encoding="utf-8")
+    with pytest.raises(StateError):
+        store.load_digest_queue()

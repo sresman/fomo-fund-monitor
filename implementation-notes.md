@@ -762,3 +762,57 @@ channel is not in `known_channels`, it lands in `youtube_medium` and stays
 silent. That is recoverable — silent capture still writes to state — but it is
 not an alert. Adding channels to `known_channels` as they appear is the
 maintenance task that keeps this working.
+
+---
+
+## 2026-09-03 — Commits 19-21: cron */30, silent-capture digest, blind-spot note
+
+**Commit 19 — cron `*/15` -> `*/30`.** Ahead of the visibility flip. It bought
+nothing (measured delivery 2-7 runs/day against a declared 96; EDGAR's own
+15-minute gate never bound) and private repos bill minutes, where `*/15` at full
+cadence would be ~2,880 min/month.
+
+**Commit 20 — weekly silent-capture digest, folded into the heartbeat.**
+
+*Decision SD-A50 — a new state file, because silent capture stores no content.*
+Dedupe state records only an id, so a digest cannot be reconstructed from it.
+`state/digest_queue.json` holds an append-only queue of `DigestEntry` rows
+(captured_at, event_type, entity_key, source, title, url, identifier,
+published), written by the orchestrator when an event commits with `routed`
+empty.
+
+*Decision SD-A51 — queued only on COMMIT, never on detection.* An event held
+back for retry must not appear in the digest and then also alert once delivery
+is fixed. Pinned by `test_uncommitted_events_are_not_queued`.
+
+*Decision SD-A52 — send, THEN drain.* `heartbeat.main` clears the queue only
+after `send()` returns. A failed send re-sends next week rather than losing the
+week silently — the correct asymmetry for a mechanism whose whole purpose is
+recovering things that did not alert.
+
+*Decision SD-A53 (WOULD HAVE BEEN A SILENT BUG) — the heartbeat workflow needed
+`contents: write` and a commit step.* The drain happens on the runner; without
+pushing it back, the queue would be restored from the repo on the next run and
+every heartbeat would re-send the same items forever. Caught before shipping.
+
+*Decision SD-A54 — bounded in both places.* `DIGEST_QUEUE_MAX_ENTRIES = 2000`
+caps the state file (overflow drops the OLDEST, since the newest week is what is
+read); `DIGEST_MAX_PER_GROUP = 25` caps each rendered group with a "+N older"
+tail, so a catch-up run capturing ~150 news items cannot produce an unreadable
+wall. Titles truncate at 110 chars.
+
+*Decision SD-A55 — the digest never affects `healthy`.* A busy news week is not
+a problem, and conflating the two would make the OK/CHECK verdict meaningless.
+
+*Failure isolation:* a queue write fault is logged and swallowed
+(`test_digest_queue_failure_is_isolated`), and a malformed queue ROW is skipped
+rather than fatal. The digest is a convenience; it must never break a run or the
+heartbeat.
+
+**Commit 21 — README blind spot.** `situational-awareness.com` documented as
+unmonitorable, per the operator's decision not to build headless rendering.
+
+**Operator decisions accepted this round:** `filing_form4` and
+`conference_change` keep alerting; the Dwarkesh 20-item window is accepted (the
+June 2024 Leopold episode is already in the corpus); manifest drift detection
+stays local, CI enforces only inertness.

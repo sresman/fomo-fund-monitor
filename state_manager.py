@@ -30,9 +30,39 @@ from errors import StateError
 
 AppearanceKind = Literal["youtube", "rss_guids", "urls"]
 
+# Field order of a digest-queue row, and the exact set required on read.
+_DIGEST_FIELDS: tuple[str, ...] = (
+    "captured_at",
+    "event_type",
+    "entity_key",
+    "source",
+    "title",
+    "url",
+    "identifier",
+    "published",
+)
+
 # Typed representations of the on-disk shapes.
 SeenFilings = dict[str, list[str]]
 LastRun = dict[str, str]  # monitor -> ISO timestamp; plain alias (no NewType)
+
+
+@dataclass(frozen=True)
+class DigestEntry:
+    """One silently-captured event, queued for the weekly digest.
+
+    All-str so the on-disk shape stays trivially narrowable; ``published`` is an
+    ISO date/datetime or "" when the source gave none.
+    """
+
+    captured_at: str
+    event_type: str
+    entity_key: str
+    source: str
+    title: str
+    url: str
+    identifier: str
+    published: str
 
 
 @dataclass
@@ -285,6 +315,53 @@ class StateStore:
         data = self.load_seen_appearances()
         data.conference_hashes[key] = snapshot
         self.save_seen_appearances(data)
+
+    # -- digest queue ------------------------------------------------------ #
+
+    def load_digest_queue(self) -> list[DigestEntry]:
+        """Read the pending digest queue. A malformed ROW is skipped rather than
+        fatal: the digest is a convenience, and one bad row must not break a run
+        or the heartbeat."""
+        raw = self._read_json(constants.STATE_FILE_DIGEST_QUEUE, lambda: [])
+        if not isinstance(raw, list):
+            raise StateError(
+                f"digest_queue: expected a list, got {type(raw).__name__}"
+            )
+        entries: list[DigestEntry] = []
+        for item in raw:
+            if not isinstance(item, dict):
+                continue
+            values = {f: item.get(f) for f in _DIGEST_FIELDS}
+            if any(not isinstance(v, str) for v in values.values()):
+                continue
+            entries.append(DigestEntry(**{k: str(v) for k, v in values.items()}))
+        return entries
+
+    def save_digest_queue(self, entries: list[DigestEntry]) -> None:
+        self._write_json(
+            constants.STATE_FILE_DIGEST_QUEUE,
+            [{f: getattr(e, f) for f in _DIGEST_FIELDS} for e in entries],
+        )
+
+    def append_digest_entries(self, entries: list[DigestEntry]) -> None:
+        """Append, de-duplicating on identifier, oldest dropped past the cap.
+
+        Purely additive to the queue's tail. The cap keeps the state file bounded
+        if a heartbeat is ever missed; the newest week is the one worth reading,
+        so overflow drops from the FRONT.
+        """
+        if not entries:
+            return
+        existing = self.load_digest_queue()
+        seen = {e.identifier for e in existing}
+        merged = existing + [e for e in entries if e.identifier not in seen]
+        if len(merged) > constants.DIGEST_QUEUE_MAX_ENTRIES:
+            merged = merged[-constants.DIGEST_QUEUE_MAX_ENTRIES :]
+        self.save_digest_queue(merged)
+
+    def clear_digest_queue(self) -> None:
+        """Drain the queue. Called ONLY after the digest has been sent."""
+        self.save_digest_queue([])
 
     # -- last_run --------------------------------------------------------- #
 

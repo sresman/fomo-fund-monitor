@@ -38,13 +38,14 @@ import subprocess
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from typing import Sequence
 
 import requests
 
 import constants
 from config import AppConfig, load_config
 from errors import AlertError
-from state_manager import StateStore
+from state_manager import DigestEntry, StateStore
 
 logger = logging.getLogger("fomo_monitor.heartbeat")
 
@@ -77,6 +78,9 @@ class HeartbeatReport:
     events_committed: int
     monitors: tuple[MonitorStatus, ...]
     problems: tuple[str, ...]
+    # Everything captured silently since the last heartbeat (MEDIUM YouTube,
+    # google_news, website_diff, filing_other). Never affects `healthy`.
+    digest: tuple[DigestEntry, ...] = ()
 
     @property
     def healthy(self) -> bool:
@@ -334,6 +338,13 @@ def collect(
     root = repo_root if repo_root is not None else Path(__file__).resolve().parent
     since = now - timedelta(days=window_days)
 
+    store = StateStore(config.paths.state_dir)
+    try:
+        digest = tuple(store.load_digest_queue())
+    except Exception as exc:  # noqa: BLE001 -- a bad queue must not kill the beat
+        logger.warning("heartbeat: could not read the digest queue: %s", exc)
+        digest = ()
+
     counts = _actions_run_counts(since)
     if counts is not None:
         runs_executed, failed_opt = counts[0], counts[1]
@@ -378,6 +389,7 @@ def collect(
         events_committed=events,
         monitors=monitors,
         problems=tuple(problems),
+        digest=digest,
     )
 
 
@@ -433,6 +445,8 @@ def render(report: HeartbeatReport) -> tuple[str, str]:
         lines.append("PROBLEMS:")
         lines += [f"  - {p}" for p in report.problems]
 
+    lines += _render_digest(report.digest)
+
     lines += [
         "",
         "Note: alerts delivered is counted from dedupe-state additions, which "
@@ -440,6 +454,61 @@ def render(report: HeartbeatReport) -> tuple[str, str]:
         "in the GitHub Actions logs.",
     ]
     return subject, "\n".join(lines)
+
+
+def _digest_sort_key(entry: DigestEntry) -> tuple[str, str]:
+    return (entry.published or entry.captured_at, entry.title)
+
+
+def _render_digest(entries: Sequence[DigestEntry]) -> list[str]:
+    """Render the silent-capture digest, grouped by SUBJECT then SOURCE.
+
+    Subject is the tracked entity the event was attributed to; events with no
+    entity (a site diff, say) fall into "unattributed". Within a group the items
+    are newest-last so the section reads chronologically. Each group is capped at
+    ``DIGEST_MAX_PER_GROUP`` with a "+N more" tail, so a catch-up run that
+    captures 150 news items cannot turn the digest into an unreadable wall.
+
+    No action is expected from any of this -- it is the recovery path for a
+    first-party appearance on a venue that is not allowlisted, and a way to see
+    what google_news is holding without it arriving live.
+    """
+    if not entries:
+        return [
+            "",
+            "Captured silently since the last heartbeat: nothing.",
+        ]
+
+    grouped: dict[tuple[str, str], list[DigestEntry]] = {}
+    for entry in entries:
+        subject = entry.entity_key or "unattributed"
+        grouped.setdefault((subject, entry.source or "unknown source"), []).append(entry)
+
+    lines = [
+        "",
+        "-" * 68,
+        f"CAPTURED SILENTLY ({len(entries)} item(s)) — no action expected",
+        "Routed to no channel by policy: MEDIUM YouTube, Google News, site "
+        "diffs, other filings.",
+        "-" * 68,
+    ]
+    for (subject, source) in sorted(grouped):
+        items = sorted(grouped[(subject, source)], key=_digest_sort_key)
+        lines.append("")
+        lines.append(f"{subject} — {source}  ({len(items)})")
+        shown = items[-constants.DIGEST_MAX_PER_GROUP :]
+        hidden = len(items) - len(shown)
+        if hidden > 0:
+            lines.append(f"   … {hidden} older item(s) not shown")
+        for item in shown:
+            date = (item.published or item.captured_at)[:10]
+            title = item.title.strip() or "(untitled)"
+            if len(title) > constants.DIGEST_TITLE_MAX_CHARS:
+                title = title[: constants.DIGEST_TITLE_MAX_CHARS - 1].rstrip() + "…"
+            lines.append(f"   {date}  {title}")
+            if item.url:
+                lines.append(f"             {item.url}")
+    return lines
 
 
 def send(report: HeartbeatReport, *, config_path: str | Path | None = None) -> None:
@@ -461,11 +530,23 @@ def main(config_path: str | Path | None = None) -> int:
         level=logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
+    config = load_config(config_path)
     report = collect(datetime.now(timezone.utc), config_path=config_path)
     subject, body = render(report)
     logger.info("heartbeat: %s", subject)
     logger.info("\n%s", body)
+
+    # Send FIRST. The queue is drained only once the mail is away, so a send
+    # failure loses nothing -- the next heartbeat carries the same items.
     send(report, config_path=config_path)
+    if report.digest:
+        try:
+            StateStore(config.paths.state_dir).clear_digest_queue()
+            logger.info(
+                "heartbeat: drained %d digest item(s)", len(report.digest)
+            )
+        except Exception as exc:  # noqa: BLE001 -- a re-sent digest beats a lost one
+            logger.error("heartbeat: failed to drain the digest queue: %s", exc)
     return 0
 
 

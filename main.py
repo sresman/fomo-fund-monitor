@@ -80,7 +80,7 @@ from errors import (
     StateError,
 )
 from models import AlertChannel, DetectedEvent, EventType, MonitorName
-from state_manager import AppearanceKind, StateStore
+from state_manager import AppearanceKind, DigestEntry, StateStore
 
 if TYPE_CHECKING:
     # Client Protocols imported for typing only; the concrete classes are built
@@ -118,6 +118,8 @@ class StoreLike(Protocol):
     def mark_appearance_seen(
         self, kind: AppearanceKind, identifier: str
     ) -> None: ...
+
+    def append_digest_entries(self, entries: list[DigestEntry]) -> None: ...
 
 
 class DispatchResultLike(Protocol):
@@ -418,6 +420,20 @@ def describe_alert_failure(result: DispatchResultLike) -> str:
     return f"no channel delivered; all routed channels unconfigured: {skipped or 'none routed'}"
 
 
+def _digest_entry(event: DetectedEvent, now: datetime) -> DigestEntry:
+    """Project a silently-captured event into a queued digest row."""
+    return DigestEntry(
+        captured_at=now.isoformat(),
+        event_type=event.event_type.value,
+        entity_key=event.entity_key,
+        source=event.source,
+        title=event.title,
+        url=event.url,
+        identifier=event.identifier,
+        published=event.published.isoformat() if event.published else "",
+    )
+
+
 # --------------------------------------------------------------------------- #
 # Per-monitor processing
 # --------------------------------------------------------------------------- #
@@ -485,6 +501,10 @@ def _process_monitor(
         # identical line per event (115 for a single google_news run).
         skipped_counts: dict[AlertChannel, int] = {}
         skipped_reason: dict[AlertChannel, str] = {}
+        # Silently-captured events (routed to no channels) are queued for the
+        # weekly digest, so an appearance on a venue we do not allowlist is
+        # visible within a week even though it never alerts live.
+        digest: list[DigestEntry] = []
         # dispatch_events returns one result per event, same order/length.
         for event, result in zip(events, results):
             for channel in result.channels_skipped:
@@ -519,6 +539,8 @@ def _process_monitor(
                         exc,
                     )
                     continue
+                if not result.routed:
+                    digest.append(_digest_entry(event, now))
                 _fire_bridge_for_event(bridge, gate, config, name, event, now)
             else:
                 # Retryable event whose alert failed: leave un-committed so it
@@ -527,6 +549,20 @@ def _process_monitor(
                     "monitor %s: %r left un-committed to retry next run",
                     name,
                     event.identifier,
+                )
+
+        if digest:
+            # One write per monitor, not per event.
+            try:
+                store.append_digest_entries(digest)
+                logger.info(
+                    "monitor %s: queued %d silent-capture item(s) for the digest",
+                    name,
+                    len(digest),
+                )
+            except Exception as exc:  # noqa: BLE001 -- digest is best-effort
+                logger.error(
+                    "monitor %s: failed to queue digest entries: %s", name, exc
                 )
 
         for channel in sorted(skipped_counts, key=lambda c: c.value):

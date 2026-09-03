@@ -21,7 +21,7 @@ import constants
 import heartbeat
 from config import AppConfig, load_config
 from heartbeat import HeartbeatReport, MonitorStatus, collect, render
-from state_manager import SeenAppearances, StateStore
+from state_manager import DigestEntry, SeenAppearances, StateStore
 
 NOW = datetime(2026, 9, 3, 12, 0, tzinfo=timezone.utc)
 
@@ -53,6 +53,7 @@ def _report(**kwargs: object) -> HeartbeatReport:
         "events_committed": 3,
         "monitors": (_status("edgar", 2.0),),
         "problems": (),
+        "digest": (),
     }
     base.update(kwargs)
     return HeartbeatReport(**base)  # type: ignore[arg-type]
@@ -268,3 +269,84 @@ def test_actions_api_failure_falls_back(monkeypatch: pytest.MonkeyPatch) -> None
 
     monkeypatch.setattr(requests, "get", _boom)
     assert heartbeat._actions_run_counts(NOW - timedelta(days=7)) is None
+
+
+# --------------------------------------------------------------------------- #
+# Silent-capture digest
+# --------------------------------------------------------------------------- #
+
+
+def _entry(
+    identifier: str,
+    *,
+    entity: str = "atreides",
+    source: str = "Google News",
+    title: str = "A headline",
+    published: str = "2026-09-01",
+    url: str = "https://ex.example/a",
+) -> DigestEntry:
+    return DigestEntry(
+        captured_at="2026-09-02T00:00:00+00:00",
+        event_type="google_news",
+        entity_key=entity,
+        source=source,
+        title=title,
+        url=url,
+        identifier=identifier,
+        published=published,
+    )
+
+
+def test_empty_digest_says_so_explicitly() -> None:
+    _, body = render(_report(digest=()))
+    assert "Captured silently since the last heartbeat: nothing." in body
+
+
+def test_digest_groups_by_subject_then_source() -> None:
+    digest = (
+        _entry("a", entity="atreides", source="Google News"),
+        _entry("b", entity="atreides", source="YouTube"),
+        _entry("c", entity="situational_awareness", source="Google News"),
+    )
+    _, body = render(_report(digest=digest))
+    assert "atreides — Google News  (1)" in body
+    assert "atreides — YouTube  (1)" in body
+    assert "situational_awareness — Google News  (1)" in body
+    # Subjects sort together, so the section is scannable.
+    assert body.index("atreides — Google News") < body.index("situational_awareness —")
+
+
+def test_digest_states_no_action_expected() -> None:
+    _, body = render(_report(digest=(_entry("a"),)))
+    assert "no action expected" in body
+
+
+def test_digest_never_affects_health() -> None:
+    """A busy news week is not a problem."""
+    report = _report(digest=tuple(_entry(str(i)) for i in range(200)))
+    assert report.healthy
+
+
+def test_large_group_is_capped_with_a_tail() -> None:
+    n = constants.DIGEST_MAX_PER_GROUP + 12
+    digest = tuple(_entry(str(i), title=f"headline {i}") for i in range(n))
+    _, body = render(_report(digest=digest))
+    assert f"… 12 older item(s) not shown" in body
+    assert body.count("headline ") == constants.DIGEST_MAX_PER_GROUP
+
+
+def test_long_titles_are_truncated() -> None:
+    long_title = "x" * (constants.DIGEST_TITLE_MAX_CHARS + 80)
+    _, body = render(_report(digest=(_entry("a", title=long_title),)))
+    assert long_title not in body
+    assert "…" in body
+
+
+def test_unattributed_events_get_their_own_group() -> None:
+    _, body = render(_report(digest=(_entry("a", entity="", source="gavinbaker.net"),)))
+    assert "unattributed — gavinbaker.net" in body
+
+
+def test_entry_without_a_url_still_renders() -> None:
+    _, body = render(_report(digest=(_entry("a", url=""),)))
+    assert "A headline" in body

@@ -12,10 +12,14 @@ on:
   workflow_dispatch: {}
 
 permissions:
+  # contents:write is needed to push the DRAINED digest queue back. Without it
+  # the heartbeat would clear state/digest_queue.json locally, the change would
+  # be discarded with the runner, and every heartbeat would re-send the same
+  # items forever.
   # actions:read lets the heartbeat query the monitoring workflow's run history
   # for an exact executed/failed count. Without it the report silently falls
   # back to counting state commits, which cannot see failed runs.
-  contents: read
+  contents: write
   actions: read
 
 concurrency:
@@ -55,3 +59,20 @@ jobs:
         # No `continue-on-error`: a heartbeat that cannot send is itself the
         # alarm, and must fail the job so GitHub notifies.
         run: python heartbeat.py
+
+      - name: Commit the drained digest queue
+        # Only reached when the send succeeded (heartbeat.py drains AFTER the
+        # mail is away), so a failed send leaves the queue intact for next week.
+        if: success()
+        run: |
+          git config user.name "fomo-monitor-bot"
+          git config user.email "fomo-monitor@users.noreply.github.com"
+          git add state/
+          if git diff --cached --quiet; then
+            echo "No state changes to commit."
+            exit 0
+          fi
+          git commit -m "Drain digest queue $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          # The monitor cron pushes state too; rebase before pushing.
+          git pull --rebase --autostash origin "$GITHUB_REF_NAME"
+          git push

@@ -113,7 +113,26 @@ python heartbeat.py    # emails a 7-day summary; also runs weekly in Actions
 Reports runs executed (and failed), alerts delivered, and per-monitor time since
 last successful observation, so a quiet week is distinguishable from a broken
 monitor. Thresholds are calibrated on the OBSERVED run cadence (~6/weekday),
-not the `*/15` cron spec, which GitHub throttles heavily.
+not the cron spec, which GitHub throttles heavily.
+
+It also carries the **silent-capture digest**: everything routed to no channel by
+policy (MEDIUM YouTube, Google News, site diffs, other filings), grouped by
+subject and source, no action expected. That is the recovery path for a
+first-party appearance on a venue that is not allowlisted — it never alerts
+live, but it is visible within a week. The queue is drained only after the mail
+is away, so a failed send loses nothing.
+
+## Known blind spot
+
+**`situational-awareness.com` cannot be monitored by this stack.** Its `/feed`
+returns the homepage HTML rather than RSS (HTTP 200, ~4.9 KB, `text/html`), so
+the RSS branch correctly refuses to seed it; and the page normalises to *zero*
+characters of text — it is a client-rendered shell — so page-hash diffing cannot
+see it either. Both branches are dead ends without a JS-rendering fetch, which is
+not worth building for one static essay site. The `leopold_post` route has
+therefore never fired. Leopold coverage rests on EDGAR (which has produced the
+real signal, including a $523.9M 13D), the Dwarkesh and Lex Fridman feeds, and
+YouTube search.
 
 ## Development
 

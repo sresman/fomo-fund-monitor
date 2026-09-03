@@ -47,7 +47,7 @@ from models import (
     MonitorName,
     Priority,
 )
-from state_manager import AppearanceKind, StateStore
+from state_manager import AppearanceKind, DigestEntry, StateStore
 
 REPO_ROOT = Path(__file__).parent.parent
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -151,7 +151,8 @@ def make_result(
 
 class FakeStore:
     """In-memory StoreLike. ``should_run`` returns True unless configured; can be
-    told to raise (StateError) for a specific monitor."""
+    told to raise (StateError) for a specific monitor. ``digest`` records what
+    silent-capture rows the orchestrator queued."""
 
     def __init__(
         self,
@@ -166,8 +167,12 @@ class FakeStore:
         self._probe_raises = probe_raises
         self._record_run_raises = record_run_raises or set()
         self.recorded: list[str] = []
+        self.digest: list[DigestEntry] = []
         self.filings_marked: list[tuple[str, str]] = []
         self.appearances_marked: list[tuple[str, str]] = []
+
+    def append_digest_entries(self, entries: list[DigestEntry]) -> None:
+        self.digest.extend(entries)
 
     def should_run(
         self, monitor_name: str, now: datetime, intervals: dict[str, int]
@@ -1128,3 +1133,58 @@ def test_main_module_runnable_dry_run() -> None:
         timeout=180,
     )
     assert result.returncode == 0, result.stderr
+
+
+# --------------------------------------------------------------------------- #
+# Silent-capture digest queueing
+# --------------------------------------------------------------------------- #
+
+
+def test_silent_capture_is_queued_for_the_digest() -> None:
+    ev = make_event(identifier="e1", event_type=EventType.GOOGLE_NEWS)
+    store = FakeStore()
+    dispatcher = FakeDispatcher(sent_by_id={"e1": ()}, routed_by_id={"e1": ()})
+    spec = _spec(MonitorName.GOOGLE_NEWS, [ev], commit_log=[])
+    assert _run(store=store, dispatcher=dispatcher, monitors=[spec]) == 0
+    assert [d.identifier for d in store.digest] == ["e1"]
+    assert store.digest[0].title == ev.title
+    assert store.digest[0].url == ev.url
+    assert store.digest[0].entity_key == "atreides"
+    assert store.digest[0].event_type == "google_news"
+
+
+def test_alerted_events_are_not_queued() -> None:
+    """The digest is for what did NOT reach the inbox."""
+    ev = make_event(identifier="e1")
+    store = FakeStore()
+    spec = _spec(MonitorName.EDGAR, [ev], commit_log=[])
+    assert _run(store=store, dispatcher=FakeDispatcher(), monitors=[spec]) == 0
+    assert store.digest == []
+
+
+def test_uncommitted_events_are_not_queued() -> None:
+    """An event held back for retry must not also be digested, or it would show
+    up in the weekly mail and then still alert once delivery is fixed."""
+    ev = make_event(identifier="e1")
+    store = FakeStore()
+    dispatcher = FakeDispatcher(
+        errors_by_id={"e1": {AlertChannel.EMAIL: "boom"}}, sent_by_id={"e1": ()}
+    )
+    spec = _spec(MonitorName.EDGAR, [ev], commit_log=[])
+    with pytest.raises(AlertDeliveryError):
+        _run(store=store, dispatcher=dispatcher, monitors=[spec])
+    assert store.digest == []
+
+
+def test_digest_queue_failure_is_isolated() -> None:
+    """The digest is a convenience; a queue write fault must not fail the run."""
+
+    class _BadStore(FakeStore):
+        def append_digest_entries(self, entries: list[DigestEntry]) -> None:
+            raise OSError("disk full")
+
+    ev = make_event(identifier="e1")
+    store = _BadStore()
+    dispatcher = FakeDispatcher(sent_by_id={"e1": ()}, routed_by_id={"e1": ()})
+    spec = _spec(MonitorName.GOOGLE_NEWS, [ev], commit_log=[])
+    assert _run(store=store, dispatcher=dispatcher, monitors=[spec]) == 0

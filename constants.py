@@ -192,6 +192,26 @@ MARKER_YOUTUBE_SWEEP: str = "youtube_sweep"
 STATE_FILE_SEEN_FILINGS: str = "seen_filings.json"
 STATE_FILE_SEEN_APPEARANCES: str = "seen_appearances.json"
 STATE_FILE_LAST_RUN: str = "last_run.json"
+# Pending silent-capture items awaiting the weekly digest. Drained by the
+# heartbeat after a successful send.
+STATE_FILE_DIGEST_QUEUE: str = "digest_queue.json"
+
+# --- Weekly digest of silent-capture items ---
+#
+# Events routed to no channels (alert_routing: []) still get queued here so the
+# weekly heartbeat can show what was captured. This is the recovery path for a
+# first-party appearance on a venue that is not allowlisted: it never alerts
+# live, but it is visible within a week.
+#
+# Hard cap on the on-disk queue. google_news alone can add ~150 ids on a
+# catch-up run; the cap keeps the state file bounded if a heartbeat is ever
+# missed. When full, the OLDEST entries are dropped -- the newest week is the
+# one worth reading.
+DIGEST_QUEUE_MAX_ENTRIES: int = 2000
+# Per (subject, source) group shown in the email before collapsing to "+N more".
+DIGEST_MAX_PER_GROUP: int = 25
+# Title truncation inside the digest, so one long headline cannot dominate.
+DIGEST_TITLE_MAX_CHARS: int = 110
 
 # --- repository_dispatch bridge (Prompt 6) ---
 
