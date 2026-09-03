@@ -50,7 +50,9 @@ the spec/plan-2 specify). Consume:
   `.phone_env` — resolve via `os.environ` at send time).
 - `constants.GMAIL_SMTP_HOST`/`GMAIL_SMTP_PORT`/`SMS_MAX_LENGTH`.
 - Secrets via `os.environ`: `ALERT_EMAIL`, `ALERT_PHONE`, `GMAIL_USER`,
-  `GMAIL_APP_PASSWORD`, `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_FROM`.
+  `GMAIL_APP_PASSWORD`, `TWILIO_SID`, `TWILIO_AUTH`, `TWILIO_FROM`.
+  <!-- Corrected 2026-09-03: this line originally read TWILIO_ACCOUNT_SID /
+       TWILIO_AUTH_TOKEN, which no code has ever read. See README.md. -->
 
 Keep new code + tests fully type-annotated (`alerting` and `tests` are in mypy
 strict scope). Run bare `mypy` and `pytest -q`; both must stay green.

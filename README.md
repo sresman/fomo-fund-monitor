@@ -20,10 +20,12 @@ fomo-fund-monitor/
 ├── constants.py       # fixed code-level constants (URLs, timeouts, filing maps)
 ├── models.py          # shared dataclasses + enums (DetectedEvent, Alert, ...)
 ├── state_manager.py   # StateStore: state files + interval gating
-├── errors.py          # ConfigError, StateError
-├── main.py            # orchestrator entrypoint (placeholder until Prompt 6)
-├── monitors/          # monitor modules (Prompts 3-5)
-├── alerting/          # alerter modules (Prompt 2)
+├── errors.py          # ConfigError, StateError, Alert* errors
+├── main.py            # orchestrator entrypoint + CLI
+├── replay.py          # --replay-since: re-emit past alerts, never mutates state
+├── heartbeat.py       # weekly proof-of-life email
+├── monitors/          # monitor modules
+├── alerting/          # alerter modules
 ├── config.yaml        # all user-tunable config (NO SECRETS)
 ├── state/             # committed-back JSON state (seen_* / last_run)
 ├── reference/         # reference data (master manifest, etc.)
@@ -41,25 +43,69 @@ schema.
 
 `config.yaml` stores only the *names* of env vars for alert recipients
 (`alert_recipients.email_env`, `.phone_env`); values are resolved from the
-environment at runtime (Prompts 2/6). Secrets used by later prompts:
+environment at send time.
 
-- `ALERT_EMAIL`, `ALERT_PHONE` — recipient references
-- `GMAIL_USER`, `GMAIL_APP_PASSWORD` — email sending (Prompt 2)
-- `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_FROM` — SMS (Prompt 2)
-- `YOUTUBE_API_KEY` — YouTube Data API (Prompt 4)
+**These names are exact — they are what the code actually reads.** Set them as
+GitHub Actions repository secrets with these spellings; `.github/workflows/`
+passes them straight through.
+
+| Env var | Read by | Notes |
+|---|---|---|
+| `ALERT_EMAIL` | `alert_recipients.email_env` → `alerting/dispatch.py` | recipient |
+| `ALERT_PHONE` | `alert_recipients.phone_env` → `alerting/dispatch.py` | recipient |
+| `GMAIL_USER` | `constants.ENV_GMAIL_USER` | Gmail address to send from |
+| `GMAIL_APP_PASSWORD` | `constants.ENV_GMAIL_APP_PASSWORD` | Gmail → Security → App Passwords |
+| `TWILIO_SID` | `constants.ENV_TWILIO_SID` | **not** `TWILIO_ACCOUNT_SID` |
+| `TWILIO_AUTH` | `constants.ENV_TWILIO_AUTH` | **not** `TWILIO_AUTH_TOKEN` |
+| `TWILIO_FROM` | `constants.ENV_TWILIO_FROM` | Twilio phone number |
+| `YOUTUBE_API_KEY` | `constants.ENV_YOUTUBE_API_KEY` | YouTube Data API |
+| `DISPATCH_GITHUB_PAT` | `constants.ENV_DISPATCH_GITHUB_PAT` | optional; only if `dispatch_bridge.enabled` |
+
+An unset secret is injected by Actions as an EMPTY STRING, which the alerting
+layer treats as "channel not configured": that channel is skipped, the others
+still deliver, and the skip is logged once per run with the missing var named.
 
 The config loader validates that env-var *names* are non-empty; it does NOT check
-that the env vars themselves are set (a runtime concern).
+that the env vars themselves are set (a send-time concern).
 
 ## Running locally
 
-From the repo root:
+From the repo root (with a `.env` present, or the vars exported):
 
 ```bash
-python main.py
+python main.py                              # one monitoring pass (what the cron runs)
+python main.py --dry-run                    # ... touching no state and sending nothing
 ```
 
-(Currently prints a placeholder; the orchestrator arrives in Prompt 6.)
+### Replaying missed alerts
+
+Re-emits alerts for events published on or after a date, through the real send
+path. It never writes state and never touches dedupe, so it is safe to run
+repeatedly — it re-sends every time, which is the point.
+
+```bash
+python main.py --replay-since 2026-08-14 --dry-run     # preview first
+python main.py --replay-since 2026-08-14               # edgar only (the default)
+python main.py --replay-since 2026-08-14 --monitor youtube --limit 10
+```
+
+`--monitor` is repeatable. The high-volume sources (`google_news`, `youtube`,
+`podcast_rss`, `cnbc`) replay ONLY when named explicitly — one un-narrowed
+`google_news` replay is ~115 emails. `conference_pages` and `website_diff` cannot
+be replayed at all: their events carry no source timestamp to filter on.
+
+`--limit N` keeps the N most recent matches but still sends oldest-first.
+
+### Heartbeat
+
+```bash
+python heartbeat.py    # emails a 7-day summary; also runs weekly in Actions
+```
+
+Reports runs executed (and failed), alerts delivered, and per-monitor time since
+last successful observation, so a quiet week is distinguishable from a broken
+monitor. Thresholds are calibrated on the OBSERVED run cadence (~6/weekday),
+not the `*/15` cron spec, which GitHub throttles heavily.
 
 ## Development
 

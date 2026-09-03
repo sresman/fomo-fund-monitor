@@ -365,3 +365,30 @@ and it is exactly the signal that was missing — this heartbeat would have show
 treated as a problem (a genuinely quiet week is legitimate), only surfaced in the
 subject. If a quiet week is implausible enough to be worth alarming on, add a
 `HEARTBEAT_MIN_ALERTS_PER_WINDOW` floor.
+
+---
+
+## 2026-09-03 — Commit 7: correct the documented secret names
+
+**Problem, found during the Phase 1 diagnosis.** `README.md` and
+`handoffs/2026-07-22-prompt-1-foundation.md` documented `TWILIO_ACCOUNT_SID` /
+`TWILIO_AUTH_TOKEN`. No code has ever read those names — `constants.py` defines
+`TWILIO_SID` / `TWILIO_AUTH`, and `.github/workflows/monitor.yml` passes those.
+An operator setting GitHub secrets from the README would have created two
+secrets nothing reads and left the real ones empty.
+
+Fixed immediately rather than logged, per the project's standing instruction on
+low-effort issues, and because the operator is setting these secrets right now.
+`docs/specs/monitoring_system_spec.md` and
+`handoffs/2026-08-01-prompt-6-orchestrator.md` were already correct and are
+unchanged.
+
+The README table now names, for every var, the exact constant or config key that
+reads it, so the mapping is checkable rather than remembered. The historical
+handoff keeps its original line with an inline correction note rather than being
+silently rewritten — handoffs are a record of what was believed at the time.
+
+Also documented in the README: the `--replay-since` / `--dry-run` / `--monitor` /
+`--limit` CLI, the heartbeat, and the empty-string-secret behaviour (an unset
+Actions secret arrives as `""`, which the alerting layer now reads as "channel
+not configured" and skips rather than failing).
