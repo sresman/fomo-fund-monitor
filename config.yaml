@@ -72,44 +72,51 @@ youtube:
     - "ep."
     - "episode"
 
+# Keywords are FULL NAMES, not surnames (changed 2026-09-03). An audit of every
+# configured feed found 22 historical surname matches and ZERO of them genuine:
+# "Gavin Newsom" (x7), "Theo Baker", "Hobey Baker", "bakeries", "bakerlaw.com",
+# "emilybakerwhite", and Gavin's own @GavinSBaker handle appearing in show-notes
+# link dumps. matches_keywords now also strips URLs and matches whole tokens, so
+# a surname would still over-match on unrelated people -- full names are what
+# make the surface precise. "Atreides" stays as a distinctive single token.
 podcast_rss:
   feeds:
     - show: "Invest Like the Best"
       url: "https://feeds.megaphone.fm/investlikethebest"
-      keywords: ["Baker", "Atreides"]
+      keywords: ["Gavin Baker", "Atreides"]
     - show: "All-In Podcast"
       url: "https://allinchamathjason.libsyn.com/rss"
-      keywords: ["Baker", "Gavin"]
+      keywords: ["Gavin Baker"]
     - show: "This Week in Startups"
       url: "https://anchor.fm/s/7c624c84/podcast/rss"
-      keywords: ["Baker"]
+      keywords: ["Gavin Baker"]
     - show: "Capital Allocators"
       url: "https://tedseides.libsyn.com/rss"
-      keywords: ["Baker", "Atreides"]
+      keywords: ["Gavin Baker", "Atreides"]
     - show: "a16z Podcast"
       url: "https://feeds.simplecast.com/JGE3yC0V"
-      keywords: ["Baker"]
+      keywords: ["Gavin Baker"]
     - show: "BG2 Pod"
       url: "https://anchor.fm/s/f06c2370/podcast/rss"
-      keywords: ["Baker"]
+      keywords: ["Gavin Baker"]
     - show: "Bankless / Limitless"
       url: "http://feeds.libsyn.com/247424/rss"
-      keywords: ["Baker"]
+      keywords: ["Gavin Baker"]
     - show: "TBPN"
       url: "https://feeds.transistor.fm/technology-brother"
-      keywords: ["Baker"]
+      keywords: ["Gavin Baker"]
     - show: "Generating Alpha"
       url: "https://anchor.fm/s/e79435d0/podcast/rss"
-      keywords: ["Baker"]
+      keywords: ["Gavin Baker"]
     - show: "Invested by Aleph"
       url: "https://feeds.megaphone.fm/AMCL3368122371"
-      keywords: ["Baker", "Atreides"]
+      keywords: ["Gavin Baker", "Atreides"]
     - show: "Dwarkesh Podcast"
       url: "https://api.substack.com/feed/podcast/69345.rss"
-      keywords: ["Leopold", "Aschenbrenner"]
+      keywords: ["Leopold Aschenbrenner"]
     - show: "Lex Fridman"
       url: ""
-      keywords: ["Leopold", "Aschenbrenner"]
+      keywords: ["Leopold Aschenbrenner"]
 
 google_news:
   queries:
@@ -126,32 +133,32 @@ conference_pages:
     conference: "Boston Investment Conference"
     url: "https://bostoninvestmentconference.com/speakers"
     season_months: [9, 10, 11]
-    keywords: ["Baker", "Aschenbrenner"]
+    keywords: ["Gavin Baker", "Leopold Aschenbrenner"]
   - key: iconnections_speakers
     conference: "iConnections Global Alts"
     url: "https://iconnections.io"
     season_months: [11, 12, 1, 2]
-    keywords: ["Baker", "Aschenbrenner"]
+    keywords: ["Gavin Baker", "Leopold Aschenbrenner"]
   - key: sohn_ny_speakers
     conference: "Sohn Conference (NY)"
     url: "https://sohnconference.org"
     season_months: [3, 4, 5]
-    keywords: ["Baker", "Aschenbrenner"]
+    keywords: ["Gavin Baker", "Leopold Aschenbrenner"]
   - key: sohn_montreal_speakers
     conference: "Sohn Montreal"
     url: "https://sohnmontreal.org"
     season_months: [3, 4, 5, 6]
-    keywords: ["Baker", "Aschenbrenner"]
+    keywords: ["Gavin Baker", "Leopold Aschenbrenner"]
   - key: sohn_heartsandminds_speakers
     conference: "Sohn Hearts & Minds (Australia)"
     url: "https://sohnheartsandminds.com.au"
     season_months: [9, 10, 11, 12]
-    keywords: ["Baker", "Aschenbrenner"]
+    keywords: ["Gavin Baker", "Leopold Aschenbrenner"]
   - key: fii_speakers
     conference: "FII Institute / Priority"
     url: "https://fii-institute.org"
     season_months: []               # year-round; empty == always in-season
-    keywords: ["Baker", "Aschenbrenner"]
+    keywords: ["Gavin Baker", "Leopold Aschenbrenner"]
 
 website_diff:
   - key: gavinbaker_net

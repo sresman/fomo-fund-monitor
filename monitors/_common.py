@@ -21,6 +21,7 @@ only for the default adapter's exception types + the real HTTP call.
 """
 
 import logging
+import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Iterable, Literal, Mapping, Protocol, Sequence
@@ -262,23 +263,51 @@ def _entry_source_title(source_obj: object, feed_title: str, link: str) -> str:
 # --------------------------------------------------------------------------- #
 
 
+# Anything that looks like a URL is removed from a field before matching. Show
+# notes are dense with links -- an episode's "Follow the crew" block alone can
+# carry x.com/GavinSBaker -- and a name inside a URL is a citation, not an
+# appearance. Deliberately greedy to the next whitespace: URLs do not contain
+# spaces, and over-removing a token that merely looks like a URL is harmless
+# next to a false alert.
+_URL_IN_TEXT_RE = re.compile(r"(?:https?://|www\.)\S+", re.IGNORECASE)
+
+
 def matches_keywords(
     text_fields: Iterable[str], keywords: Sequence[str]
 ) -> bool:
-    """True iff any non-blank ``keyword`` (case-insensitive) is a substring of
-    ANY single ``text_field`` (per-field, not a joined string).
+    """True iff any non-blank ``keyword`` (case-insensitive) occurs as a WHOLE
+    TOKEN in ANY single ``text_field`` (per-field, not a joined string), after
+    URLs have been stripped from that field.
 
     Empty/whitespace keywords are ignored; empty ``keywords`` -> ``False``.
-    Known limitation: short framing keywords (e.g. "ep.") can substring-match
-    spuriously -- accepted for v1.
+
+    Two guards, both added 2026-09-03 after an audit of every configured feed
+    found 22 historical matches and ZERO of them genuine:
+
+    * **URLs stripped.** ``emilybakerwhite`` in a BuzzFeed link matched "Baker";
+      ``x.com/GavinSBaker`` in six All-In link dumps matched both "Baker" and
+      "Gavin". A name inside a link is a citation, not an appearance.
+    * **Whole-token matching.** ``bakeries``/``bakers``/``bakerlaw`` matched
+      "Baker" as a bare substring. Boundaries are non-alphanumeric, so a keyword
+      still matches across hyphens and punctuation ("Amodei-Gavin Baker",
+      "Baker's", "Baker:") -- only alphanumeric run-ons are rejected.
+
+    Multi-word keywords work unchanged: internal spaces are matched literally,
+    with the token boundary applied at each end ("Gavin Baker" matches
+    "Gavin Baker's", not "Gavin Bakerson").
     """
-    fields_lower = [f.lower() for f in text_fields]
+    fields_lower = [_URL_IN_TEXT_RE.sub(" ", f).lower() for f in text_fields]
     for kw in keywords:
         needle = kw.strip().lower()
         if needle == "":
             continue
+        # (?<![a-z0-9]) / (?![a-z0-9]) rather than \b so that a keyword ending
+        # in punctuation (e.g. "ep.") still behaves sensibly.
+        pattern = re.compile(
+            rf"(?<![a-z0-9]){re.escape(needle)}(?![a-z0-9])"
+        )
         for field_lower in fields_lower:
-            if needle in field_lower:
+            if pattern.search(field_lower):
                 return True
     return False
 

@@ -87,6 +87,77 @@ def test_matches_keywords_no_cross_field_match() -> None:
     assert matches_keywords(("gavin", "baker"), ("gavin baker",)) is False
 
 
+# --- URL stripping + whole-token matching (2026-09-03) --------------------- #
+# Every case below is a REAL false positive taken from the configured feeds.
+# The audit found 22 historical surname matches and zero genuine appearances.
+
+
+def test_url_contents_do_not_match() -> None:
+    """`emilybakerwhite` in a BuzzFeed link matched "Baker" and alerted a 2022
+    This Week in Startups episode about Amazon and TikTok."""
+    summary = (
+        "Check out BuzzFeed's report on TikTok: "
+        "https://www.buzzfeednews.com/article/emilybakerwhite/tiktok-tapes"
+    )
+    assert matches_keywords(("$AMZN drops Basics", summary), ("Baker",)) is False
+
+
+def test_his_own_handle_in_a_link_dump_does_not_match() -> None:
+    """Six All-In episodes matched on x.com/GavinSBaker in a "Follow the crew"
+    block. Being linked is not being on the show."""
+    summary = "Follow the crew: https://twitter.com/GavinSBaker https://x.com/chamath"
+    assert matches_keywords(("E66: $FB pullback", summary), ("Baker", "Gavin")) is False
+
+
+def test_www_prefixed_urls_are_stripped_too() -> None:
+    assert matches_keywords(("t", "see www.bakerlaw.com/x for more"), ("Baker",)) is False
+
+
+def test_substring_of_a_longer_word_does_not_match() -> None:
+    """"bakeries" and "bakers" matched "Baker" as a bare substring."""
+    assert matches_keywords(("t", "small bakeries are winning"), ("Baker",)) is False
+    assert matches_keywords(("t", "bakers like a16z backed it"), ("Baker",)) is False
+
+
+def test_a_different_person_with_the_same_surname_does_not_match() -> None:
+    """"Theo Baker's NYT essay" and the "Hobey Baker award" both alerted."""
+    assert matches_keywords(("Theo Baker's NYT essay", ""), ("Gavin Baker",)) is False
+    assert matches_keywords(("Hobey Baker award winner", ""), ("Gavin Baker",)) is False
+
+
+def test_a_different_person_with_the_same_forename_does_not_match() -> None:
+    """Seven All-In episodes matched "Gavin" on Gavin Newsom."""
+    assert matches_keywords(("Newsom's 2028 surge", "Gavin Newsom is the favorite"),
+                            ("Gavin Baker",)) is False
+
+
+def test_genuine_appearances_still_match() -> None:
+    """The signal that must survive -- every one of these was a real alert."""
+    cases = [
+        ("Gavin Baker: Why AI Demand Is Outrunning Compute Supply", ""),
+        ("Anthropic's $2T IPO", "(0:00) Gavin Baker joins the show!"),
+        ("Liquidity Summit Talks: Antonio Gracias and Gavin Baker | E1990", ""),
+        ("Seven Experts", "You'll hear from Gavin Baker, Sarah Tavel, and others"),
+    ]
+    for title, summary in cases:
+        assert matches_keywords((title, summary), ("Gavin Baker",)) is True, title
+
+
+def test_token_boundary_allows_punctuation_and_hyphens() -> None:
+    """Boundaries are non-alphanumeric, so possessives, colons and hyphenated
+    run-ins still match -- only alphanumeric run-ons are rejected."""
+    assert matches_keywords(("Gavin Baker's view", ""), ("Gavin Baker",)) is True
+    assert matches_keywords(("Dario Amodei-Gavin Baker thread", ""),
+                            ("Gavin Baker",)) is True
+    assert matches_keywords(("Gavin Bakerson", ""), ("Gavin Baker",)) is False
+
+
+def test_single_token_keywords_still_work() -> None:
+    """"Atreides" stays a bare token in config -- distinctive enough to keep."""
+    assert matches_keywords(("Atreides Management LP", ""), ("Atreides",)) is True
+    assert matches_keywords(("Atreidesian", ""), ("Atreides",)) is False
+
+
 def test_matches_keywords_empty_list_false() -> None:
     assert matches_keywords(("anything",), ()) is False
 

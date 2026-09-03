@@ -532,3 +532,59 @@ is a manual step when the corpus changes. Options: (a) run it as part of the
 celeb-pm wrap-up; (b) commit a CI job in celeb-pm that opens a PR here; (c) leave
 it manual and rely on `--check`. I did not choose one -- it is a workflow
 decision across two repos.
+
+---
+
+## 2026-09-03 — Commit 11: tighten RSS keyword matching
+
+**BLAST-RADIUS CHECK RUN FIRST, as instructed.** Replayed every candidate
+matcher over all 10 seeded feeds (~5,600 items) and diffed against the current
+one. Match counts: current **57**, +whole-token 47, +URL-stripping 46, both 44,
+both+full-names **35**.
+
+Then inspected the matching context of all 22 entries the strictest variant
+would suppress. **Every single one is a false positive. Zero genuine appearances
+lost.** Causes:
+
+| cause | count | example |
+|---|---|---|
+| `x.com/GavinSBaker` in a show-notes link dump | 6 | All-In E60/E66/E126, Jan/Feb 2025 |
+| "Gavin **Newsom**" | 7 | All-In E16/E18/E20/E31/E101, Mar 2025, Aug 2025 |
+| unrelated Bakers | 4 | `emilybakerwhite` (BuzzFeed URL), `bakerlaw.com`, "james-baker", "Theo Baker's NYT essay" |
+| the word bakers/bakeries | 2 | "small bakeries are beating Fortune 500", "bakers like Andreessen Horowitz" |
+| a link TO a Baker episode | 1 | podcasts.apple.com/…/gavin-baker-ai-semiconductors… inside All-In notes |
+| Hobey Baker award | 1 | Capital Allocators, Lane MacDonald |
+| ILTB Founder's Field Guide | 1 | "bakers like Andreessen Horowitz, Sequoia…" |
+
+**Decision SD-A41 — split the fix across code and config, along the project's
+own seam.** CLAUDE.md forbids hardcoded investor-specific values, so:
+  * `monitors/_common.py::matches_keywords` gets the GENERIC guards — strip URLs,
+    match whole tokens. Applies to every caller (podcast_rss, conference_pages,
+    website_diff, backfill) and contains no name.
+  * `config.yaml` gets the SPECIFIC change — keywords become full names
+    ("Gavin Baker", "Leopold Aschenbrenner"). Investor-specific values belong in
+    config. `"Atreides"` stays a bare token; it is distinctive enough.
+
+Neither half alone is sufficient: URL-stripping + whole-token still matches
+"Gavin Newsom" on the "Gavin" keyword and "Theo Baker" on "Baker".
+
+**Decision SD-A42 — boundaries are `(?<![a-z0-9])` / `(?![a-z0-9])`, not `\b`.**
+`\b` would break a keyword ending in punctuation (the `youtube.framing_keywords`
+list contains `"ep."`). The chosen guards also keep hyphen and possessive matches
+working: "Dario Amodei-Gavin Baker", "Gavin Baker's" both still match, while
+"Gavin Bakerson" does not.
+
+**Decision SD-A43 — URL regex is deliberately greedy to whitespace.** URLs
+contain no spaces, and over-stripping a token that merely looks like a URL costs
+a missed keyword in one field, whereas under-stripping costs a false alert. The
+asymmetry favours greediness.
+
+**What this does NOT fix, and cannot.** TWiST E2331 (2026-08-28) matched on
+"Dario Amodei-Gavin Baker tweet thread" in the show notes — real prose, his
+actual full name, and he is not a guest. It still matches, and should: telling a
+mention from an appearance is a relevance-classification problem, not a matching
+one. Flagged for the operator, not solved here.
+
+**Effect:** 57 → 35 matches across the corpus of feeds; all 22 removed are noise.
+The 3 backfilled TWiST guids are also no longer even candidates, so the
+`--backfill-seeds` dry-run now reports 0 missed.
