@@ -117,6 +117,19 @@ not the `*/15` cron spec, which GitHub throttles heavily.
 
 ## Development
 
+CI (`.github/workflows/ci.yml`) runs `mypy` and `pytest` on every push to main
+and every PR. The suite also guards the YouTube dedupe manifest: a test asserts
+`reference/master_manifest_v2.json` still yields >= 30 YouTube ids, so it cannot
+regress to the inert, mp3-only state in which it deduped nothing.
+
+Detecting manifest DRIFT against the celeb-pm corpus needs both checkouts, so it
+is a local step rather than CI:
+
+```bash
+python tools/build_master_manifest.py --corpus ../celeb-pm --check   # exit 1 if stale
+python tools/build_master_manifest.py --corpus ../celeb-pm           # regenerate
+```
+
 ```bash
 python3.11 -m venv .venv
 source .venv/bin/activate

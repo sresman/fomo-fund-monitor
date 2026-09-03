@@ -1,0 +1,53 @@
+name: CI
+
+# The repo had 597 tests and nothing running them. A monitor whose alerting
+# broke silently for 25 days should not also be able to merge a broken test
+# suite silently.
+on:
+  push:
+    branches: [main]
+    # State commits from the cron touch only state/ and cannot break the suite;
+    # skipping them keeps CI off the ~6-runs-a-day state-push treadmill.
+    paths-ignore: ["state/**"]
+  pull_request:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install -r requirements-dev.txt
+
+      - name: mypy (strict)
+        run: mypy
+
+      - name: pytest
+        # This is also the manifest guard: test_real_manifest_feeds_youtube_dedupe
+        # asserts reference/master_manifest_v2.json still yields >= 30 YouTube
+        # ids, so the file cannot silently regress to the inert, mp3-only state
+        # in which it deduped nothing for the life of the repo.
+        #
+        # NOTE: this does NOT detect corpus DRIFT. `tools/build_master_manifest.py
+        # --check` compares against the celeb-pm corpus, which is a separate
+        # repo and deliberately not checked out here. Drift detection stays a
+        # local step -- run it from a machine that has both checkouts:
+        #     python tools/build_master_manifest.py --corpus ../celeb-pm --check
+        run: pytest -q
