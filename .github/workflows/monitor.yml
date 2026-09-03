@@ -1,10 +1,21 @@
 name: FOMO Fund Monitor
 
-# Cron fires every 15 minutes; main.py gates each monitor by its own interval
+# Cron fires every 30 minutes; main.py gates each monitor by its own interval
 # (last_run.json) so we stay within API quotas while running EDGAR frequently.
+#
+# Was */15 until 2026-09-03. Two reasons for halving it, ahead of the repo going
+# private:
+#   1. It bought nothing. GitHub throttles high-frequency schedules hard --
+#      measured 2026-08-27..09-03, actual delivery was 2-7 runs/day against a
+#      declared 96, an effective gap of ~4 hours. EDGAR's own interval gate is
+#      15 minutes and never came close to binding.
+#   2. Private repos bill Actions minutes against the account quota (public ones
+#      do not). If going private restores anything near the declared cadence,
+#      */15 is ~2,880 min/month, which exceeds a Free plan and nearly exhausts
+#      Team. */30 halves the ceiling.
 on:
   schedule:
-    - cron: "*/15 * * * *"
+    - cron: "*/30 * * * *"
   workflow_dispatch: {}
 
 # The job commits updated state files back to the repo.
