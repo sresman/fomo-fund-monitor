@@ -39,6 +39,8 @@ from constants import (
     EDGAR_SUBMISSIONS_URL,
     FILING_TYPE_EVENT,
     FILING_TYPE_PRIORITY,
+    FORM_AMENDMENT_SUFFIX,
+    FORM_BASE_ALIASES,
     HTTP_MAX_RETRIES,
     HTTP_TIMEOUT_SECONDS,
     USER_AGENT,
@@ -220,14 +222,34 @@ def _parse_submissions(obj: object, requested_cik: str) -> SubmissionsResponse:
 
 
 def _normalize_form(raw: str) -> str:
-    """Defensive whitespace/case hygiene only.
+    """Canonicalize a raw EDGAR form string to the config/map spelling.
 
-    Strips, collapses internal whitespace runs to a single ASCII space (so
-    ``"SC 13G"`` keeps its single space), then uppercases (map keys are
-    uppercase; ``"4"`` is unaffected). A blank result simply fails the
-    filing-type filter downstream.
+    Two stages:
+
+    1. Hygiene -- strip, collapse internal whitespace runs to a single ASCII
+       space (so ``"SC 13G"`` keeps its single space), then uppercase (map keys
+       are uppercase; ``"4"`` is unaffected). A blank result simply fails the
+       filing-type filter downstream.
+    2. Aliasing -- EDGAR spells the Schedule 13D/G forms ``"SCHEDULE 13D"`` /
+       ``"SCHEDULE 13G"``; ``config.yaml`` and ``FILING_TYPE_*`` use ``"SC 13D"``
+       / ``"SC 13G"``. A trailing ``FORM_AMENDMENT_SUFFIX`` is split off FIRST,
+       the BASE form is aliased via ``FORM_BASE_ALIASES``, and the suffix is then
+       re-appended.
+
+    The suffix round-trip is deliberate: an amendment must stay a DISTINCT form
+    from its base so ``"SCHEDULE 13G/A"`` classifies as ``SC 13G/A`` and is never
+    collapsed into ``SC 13G``. Forms with no alias entry pass through unchanged,
+    so ``"13F-HR/A"`` and ``"4"`` are unaffected.
+
+    Applied to BOTH sides of the tracked-form comparison (raw EDGAR forms and
+    the configured ``filing_types``), so a config written in either spelling
+    resolves to the same canonical key.
     """
-    return " ".join(raw.split()).upper()
+    collapsed = " ".join(raw.split()).upper()
+    if collapsed.endswith(FORM_AMENDMENT_SUFFIX):
+        base = collapsed[: -len(FORM_AMENDMENT_SUFFIX)].rstrip()
+        return FORM_BASE_ALIASES.get(base, base) + FORM_AMENDMENT_SUFFIX
+    return FORM_BASE_ALIASES.get(collapsed, collapsed)
 
 
 # --------------------------------------------------------------------------- #

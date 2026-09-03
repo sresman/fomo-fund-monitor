@@ -178,6 +178,26 @@ LOG_RUN_SUMMARY_PREFIX: str = "run-summary"
 # ``StateStore.record_run`` validates monitor names against it.
 MONITOR_NAMES: frozenset[str] = frozenset(m.value for m in MonitorName)
 
+# --- Form-string normalization (EDGAR spelling -> canonical config spelling) ---
+#
+# EDGAR's submissions JSON spells the Schedule 13D/G forms as "SCHEDULE 13D" /
+# "SCHEDULE 13G", while config.yaml (entities[].filing_types) and the
+# FILING_TYPE_* maps below use the short "SC 13D" / "SC 13G" spelling. Without
+# this alias table the tracked-form filter in ``monitors/edgar.py`` silently
+# drops EVERY 13D/13G filing.
+#
+# Keys AND values are BASE forms only -- never carry an amendment suffix.
+# ``_normalize_form`` splits a trailing ``FORM_AMENDMENT_SUFFIX`` off FIRST,
+# aliases the base, then re-appends the suffix. So "SCHEDULE 13G/A" -> "SC 13G/A"
+# and an amendment stays a DISTINCT form from its base (never collapsed into it).
+FORM_BASE_ALIASES: dict[str, str] = {
+    "SCHEDULE 13D": "SC 13D",
+    "SCHEDULE 13G": "SC 13G",
+}
+
+# Trailing amendment marker on an EDGAR form string (uppercase, post-collapse).
+FORM_AMENDMENT_SUFFIX: str = "/A"
+
 # --- Filing-type maps (EXACT EDGAR strings, NO wildcards) ---
 #
 # Consumers look these up with ``.get(filing_type, <FILING_OTHER default>)``.

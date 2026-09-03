@@ -27,6 +27,7 @@ from monitors.edgar import (
     EdgarHttpClient,
     FilingRecord,
     SubmissionsResponse,
+    _normalize_form,
     _parse_submissions,
     check_edgar,
 )
@@ -424,6 +425,126 @@ def test_form_normalization(edgar_config: AppConfig, store: StateStore) -> None:
     assert by_id["a-sc"].event_type is EventType.FILING_SC13
     assert by_id["a-sc"].payload["filing_type"] == "SC 13G"
     assert "a-blank" not in by_id
+
+
+# --------------------------------------------------------------------------- #
+# Form aliasing: EDGAR "SCHEDULE 13D/G" spelling -> config "SC 13D/G" spelling
+#
+# Regression guard for the silent-miss bug: EDGAR's submissions JSON returns
+# "SCHEDULE 13G", config.yaml lists "SC 13G", so the tracked-form filter dropped
+# every 13D/13G filing without a single log line. Real filings that were missed:
+#   0001777813-26-000008  SCHEDULE 13G    2026-08-14  (Cerebras, 10.7%)
+#   0001777813-26-000007  SCHEDULE 13G/A  2026-08-14  (ACV Auctions, 5.7%)
+#   0000935836-26-000416  SCHEDULE 13G/A  2026-08-14  (SharonAI, 19.9%)
+#   0000935836-26-000468  SCHEDULE 13D    2026-08-28  (SharonAI, 21.1%)
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        # EDGAR long spelling -> canonical short spelling, base forms.
+        ("SCHEDULE 13D", "SC 13D"),
+        ("SCHEDULE 13G", "SC 13G"),
+        # ... and the SAME with an amendment suffix, which must be PRESERVED as a
+        # distinct form (NOT collapsed into the base).
+        ("SCHEDULE 13D/A", "SC 13D/A"),
+        ("SCHEDULE 13G/A", "SC 13G/A"),
+        # Config's own short spelling is already canonical (idempotent).
+        ("SC 13D", "SC 13D"),
+        ("SC 13G", "SC 13G"),
+        ("SC 13D/A", "SC 13D/A"),
+        ("SC 13G/A", "SC 13G/A"),
+        # Case + whitespace hygiene still applies on BOTH spellings.
+        ("schedule 13g", "SC 13G"),
+        ("  Schedule   13G/A  ", "SC 13G/A"),
+        ("sc 13d", "SC 13D"),
+        # Non-aliased forms pass through untouched, amendments included.
+        ("13F-HR", "13F-HR"),
+        ("13f-hr/a", "13F-HR/A"),
+        ("4", "4"),
+        ("NPORT-P", "NPORT-P"),
+        ("ZZZ-TEST", "ZZZ-TEST"),
+        # Blank stays blank (fails the tracked-form filter downstream).
+        ("", ""),
+        ("   ", ""),
+    ],
+)
+def test_normalize_form_aliases_edgar_spellings(raw: str, expected: str) -> None:
+    assert _normalize_form(raw) == expected
+
+
+def test_normalize_form_amendment_never_collapses_to_base() -> None:
+    """An amendment must remain distinguishable from its base form."""
+    for base_spelling in ("SCHEDULE 13G", "SC 13G", "SCHEDULE 13D", "SC 13D"):
+        base = _normalize_form(base_spelling)
+        amended = _normalize_form(base_spelling + "/A")
+        assert amended != base
+        assert amended == base + "/A"
+
+
+def test_edgar_spelled_13dg_filings_are_detected(
+    edgar_config: AppConfig, store: StateStore
+) -> None:
+    """End-to-end: EDGAR-spelled 13D/G forms now pass the tracked-form filter
+    and classify as FILING_SC13 / HIGH, with the CANONICAL form in the payload."""
+    _preseed(
+        store,
+        {"atreides": ["prior"], "situational_awareness": ["prior"], "empty_tracker": ["prior"]},
+    )
+    filings = [
+        make_filing("a-13g", "SCHEDULE 13G"),
+        make_filing("a-13ga", "SCHEDULE 13G/A"),
+        make_filing("a-13d", "SCHEDULE 13D"),
+        make_filing("a-13da", "SCHEDULE 13D/A"),
+    ]
+    client = FakeEdgarClient(
+        {
+            ATREIDES_CIK: make_submissions(ATREIDES_CIK, filings),
+            SA_CIK: make_submissions(SA_CIK, []),
+            EMPTY_CIK: make_submissions(EMPTY_CIK, []),
+        }
+    )
+    events = check_edgar(edgar_config, store, client, NOW)
+    by_id = {e.identifier: e for e in events}
+
+    assert set(by_id) == {"a-13g", "a-13ga", "a-13d", "a-13da"}
+    for ident in by_id:
+        assert by_id[ident].event_type is EventType.FILING_SC13
+        assert by_id[ident].priority is Priority.HIGH
+
+    # Payload carries the canonical spelling, and amendments stay distinct.
+    assert by_id["a-13g"].payload["filing_type"] == "SC 13G"
+    assert by_id["a-13ga"].payload["filing_type"] == "SC 13G/A"
+    assert by_id["a-13d"].payload["filing_type"] == "SC 13D"
+    assert by_id["a-13da"].payload["filing_type"] == "SC 13D/A"
+
+
+def test_edgar_spelled_13g_respects_entity_filing_types(
+    edgar_config: AppConfig, store: StateStore
+) -> None:
+    """Aliasing must not widen the filter: situational_awareness tracks only
+    13F-HR/4 in this fixture, so an EDGAR-spelled 13G is still excluded."""
+    _preseed(
+        store,
+        {"atreides": ["prior"], "situational_awareness": ["prior"], "empty_tracker": ["prior"]},
+    )
+    client = FakeEdgarClient(
+        {
+            ATREIDES_CIK: make_submissions(ATREIDES_CIK, []),
+            SA_CIK: make_submissions(
+                SA_CIK,
+                [
+                    make_filing("sa-13g", "SCHEDULE 13G"),  # NOT tracked by SA
+                    make_filing("sa-13f", "13F-HR"),  # tracked
+                ],
+            ),
+            EMPTY_CIK: make_submissions(EMPTY_CIK, []),
+        }
+    )
+    events = check_edgar(edgar_config, store, client, NOW)
+    idents = {e.identifier for e in events}
+    assert idents == {"sa-13f"}
 
 
 def test_dedupe_seen_accession_no_event(
