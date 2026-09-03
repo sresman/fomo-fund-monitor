@@ -138,6 +138,42 @@ WAF_CHALLENGE_PHRASES: tuple[str, ...] = (
 # at EMAIL_SNIPPET_MAX_LENGTH).
 FEED_DESCRIPTION_EXCERPT_MAX: int = 500
 
+# --- First-party appearance gate (podcast_rss) ---
+#
+# A configured feed is an official publisher, but an EPISODE on it may only
+# MENTION the person -- a show-notes link, a cross-reference to another podcast,
+# a tweet citation. Those are not appearances. The gate: the name is in the
+# TITLE (whoever is named in an episode title is the guest), or it is in the
+# description within APPEARANCE_FRAMING_WINDOW_CHARS of a guest-framing stem.
+#
+# Stems are PREFIXES matched at a word boundary, so "join" covers
+# join/joins/joined/joining. That breadth is load-bearing: All-In writes
+# "Gavin Baker and Travis Kalanick join the show!", and a stem list containing
+# only "joins" would have suppressed four genuine Baker appearances.
+APPEARANCE_FRAMING_STEMS: tuple[str, ...] = (
+    "join",
+    "guest",
+    "interview",
+    "sits down",
+    "sit down",
+    "sat down",
+    "in conversation",
+    "conversation with",
+    "talks to",
+    "talking to",
+    "speaks with",
+    "speaking with",
+    "chats with",
+    "welcome",
+    "returns to the show",
+    "on the show",
+    "on the pod",
+    "in studio",
+    "live with",
+)
+# Characters either side of the matched name that are scanned for a stem.
+APPEARANCE_FRAMING_WINDOW_CHARS: int = 200
+
 # --- Seeding / scheduling MARKER keys (live in SeenAppearances.markers) ---
 # Per-source seed keys are BUILT at runtime from these prefixes (see
 # monitors/_common.py seed-key helpers). They are NOT dedupe identifiers; they

@@ -26,7 +26,7 @@ from monitors._outcome import UnitTally
 from monitors._common import (
     FeedClient,
     excerpt,
-    matches_keywords,
+    is_first_party_appearance,
     merge_appearances,
     parse_feed,
     podcast_seed_key,
@@ -97,7 +97,11 @@ def check_podcast_rss(
         feed_seeds: list[str] = []
         entity_key, person = _map_person(config, feed.keywords)
         for entry in entries:
-            if not matches_keywords((entry.title, entry.summary), feed.keywords):
+            # First-party gate: the person APPEARING, not merely referenced in
+            # show notes. See monitors/_common.is_first_party_appearance.
+            if not is_first_party_appearance(
+                entry.title, entry.summary, feed.keywords
+            ):
                 continue
             identifier = entry.guid
             if identifier == "":

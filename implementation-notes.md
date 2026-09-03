@@ -663,3 +663,41 @@ reached the inbox on 2026-09-03 ("Markluce AI", "Bumlife2Bomblife. ent",
 mitigation is maintaining `known_channels` -- see the Leopold coverage audit.
 `framing_keywords` is retained and still validated by the loader but no longer
 affects routing; the config comment says so at the point of definition.
+
+---
+
+## 2026-09-03 — Commit 14: first-party appearance gate for podcast_rss
+
+**Problem.** A configured feed is an official publisher, but an EPISODE on it may
+only MENTION the person. `matches_keywords` cannot tell the difference.
+
+**Decision SD-A48 — title OR (description + nearby guest framing).** Title alone
+was tried first and REJECTED by the blast-radius check: All-In never names guests
+in the title, so title-only would have suppressed the 2026-08-14 appearance the
+operator specifically asked about. The description path needs the framing stem
+NEAR the name (200 chars), not merely present in the episode.
+
+**Decision SD-A49 (BUG CAUGHT BY THE AUDIT) — stems are PREFIXES.** My first stem
+list had "joins" and "join us" but not bare "join". Measuring it showed it would
+have dropped FOUR genuine Baker appearances, all phrased "X and Gavin Baker JOIN
+the show": All-In 2026-06-26, 2026-06-07, 2025-08-09 and E125 (2023-04-21) --
+three of which are in the transcript corpus as confirmed appearances. Stems are
+now prefix-matched at a word boundary so join/joins/joined/joining all qualify.
+This is the second time in this batch that measuring first prevented suppressing
+real signal.
+
+**Final blast radius: 35 keyword matches -> 30 appearances, 5 mentions.** The 5:
+two ILTB chapter-list cross-references to a Baker episode, an All-In cited tweet,
+the This Week in Startups E2331 link line the operator flagged, and an
+Invested-by-Aleph clip retrospective. Each verified by reading its text; none is
+in the transcript corpus as an appearance.
+
+**Known inconsistency, flagged.** Aleph 2026-01-14 (a clip retrospective) is
+excluded, but Aleph 2026-08-12 (also a compilation) is INCLUDED via "in
+conversation". The latter does contain Baker speaking in archival clips, so
+including it is defensible, but the two are close cousins and the operator may
+want both silent.
+
+**Scope.** The gate applies to `podcast_rss` only. `backfill.py` deliberately
+still uses the broader `matches_keywords`: it seeds PRE-SEED entries, where a
+superset is the conservative direction.

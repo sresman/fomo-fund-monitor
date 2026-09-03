@@ -20,6 +20,7 @@ from monitors._common import (
     RequestsFeedClient,
     ResponseLike,
     excerpt,
+    is_first_party_appearance,
     matches_keywords,
     merge_appearances,
     news_seed_key,
@@ -365,3 +366,76 @@ def test_feed_entry_is_frozen() -> None:
     )
     with pytest.raises(Exception):
         entry.guid = "x"  # type: ignore[misc]
+
+
+# --------------------------------------------------------------------------- #
+# is_first_party_appearance
+#
+# Every case below is real text from a configured feed. Audited over all feeds:
+# 35 keyword matches -> 30 appearances, 5 mentions. No genuine appearance lost.
+# --------------------------------------------------------------------------- #
+
+KW = ("Gavin Baker",)
+
+
+def test_name_in_title_qualifies() -> None:
+    assert is_first_party_appearance(
+        "Gavin Baker: Why AI Demand Is Outrunning Compute Supply", "", KW
+    ) is True
+
+
+def test_panel_show_with_the_guest_only_in_the_description() -> None:
+    """All-In never names guests in the title. Four genuine Baker appearances
+    hinge on this path."""
+    for summary in (
+        "(0:00) Gavin Baker joins the show!",
+        "(0:00) Gavin Baker and Travis Kalanick join the show!",
+        "(0:00) Brad Gerstner, Gavin Baker, and Kelly Rodriques join the Besties!",
+        "(0:00) Antonio Gracias and Gavin Baker join to discuss SpaceX's Starship",
+    ):
+        assert is_first_party_appearance("E285: AI and markets", summary, KW) is True
+
+
+def test_stem_matching_covers_inflections() -> None:
+    """"join" must cover join/joins/joined/joining -- a stem list with only
+    "joins" would have suppressed four real appearances."""
+    for verb in ("join", "joins", "joined", "joining"):
+        summary = f"Gavin Baker {verb} the show"
+        assert is_first_party_appearance("t", summary, KW) is True, verb
+
+
+def test_show_notes_cross_reference_is_not_an_appearance() -> None:
+    """Two ILTB episodes linked to a Baker episode in their chapter list."""
+    summary = "(25:42) - Gavin Baker podcast episode  (26:00) - last podcast appearance"
+    assert is_first_party_appearance("Matt Ball - The Future of Media", summary, KW) is False
+
+
+def test_cited_tweet_is_not_an_appearance() -> None:
+    """This Week in Startups E2331 matched a show-notes link line."""
+    summary = "Dario Amodei-Gavin Baker tweet thread: https://x.com/DarioAmodei/status/1"
+    assert is_first_party_appearance(
+        "Breaking down Nvidia's Hugging Face and Poolside bets | E2331", summary, KW
+    ) is False
+
+
+def test_clip_retrospective_is_not_an_appearance() -> None:
+    summary = (
+        "Michael Eisenberg curates the most compelling ideas from our 2025 episodes. "
+        "00:46 - Gavin Baker: Why Global Warming Is a Solved Problem"
+    )
+    assert is_first_party_appearance("Special Episode: A Lookback", summary, KW) is False
+
+
+def test_a_name_inside_a_url_never_qualifies() -> None:
+    summary = "notes https://podcasts.apple.com/us/podcast/gavin-baker-ai-semiconductors joins"
+    assert is_first_party_appearance("E: something", summary, KW) is False
+
+
+def test_framing_far_from_the_name_does_not_qualify() -> None:
+    """The stem must be NEAR the name, not merely present somewhere."""
+    summary = "Gavin Baker was quoted here. " + ("filler text. " * 40) + "Our guest today is Bob."
+    assert is_first_party_appearance("E: something", summary, KW) is False
+
+
+def test_no_keyword_at_all_is_false() -> None:
+    assert is_first_party_appearance("Unrelated", "nothing here", KW) is False
