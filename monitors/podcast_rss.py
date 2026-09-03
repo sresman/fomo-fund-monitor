@@ -22,6 +22,7 @@ from datetime import datetime, timezone
 from config import AppConfig
 from constants import FEED_DESCRIPTION_EXCERPT_MAX
 from models import Confidence, DetectedEvent, EventType, Priority
+from monitors._outcome import UnitTally
 from monitors._common import (
     FeedClient,
     excerpt,
@@ -71,6 +72,7 @@ def check_podcast_rss(
     events: list[DetectedEvent] = []
     pending_bucket_seeds: list[str] = []
     new_markers: dict[str, str] = {}
+    tally = UnitTally("podcast_rss")
 
     for feed in config.podcast_rss.feeds:
         if feed.url.strip() == "":
@@ -82,6 +84,7 @@ def check_podcast_rss(
             content = feed_client.fetch(feed.url)
             entries = parse_feed(content)
         except Exception:  # noqa: BLE001 -- per-feed isolation
+            tally.record_failure()
             _log.exception(
                 "podcast_rss: feed %s (%s) failed; skipping (stays first-run "
                 "if not yet seeded)",
@@ -89,6 +92,7 @@ def check_podcast_rss(
                 feed.url,
             )
             continue
+        tally.record_success()
 
         feed_seeds: list[str] = []
         entity_key, person = _map_person(config, feed.keywords)
@@ -147,4 +151,6 @@ def check_podcast_rss(
                 "next run (no data loss)"
             )
 
+    # Every feed dead => this run observed nothing; do not let last_run advance.
+    tally.raise_if_total_failure()
     return events

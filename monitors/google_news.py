@@ -29,6 +29,7 @@ from datetime import datetime, timezone
 from config import AppConfig
 from constants import GOOGLE_NEWS_RSS_URL
 from models import Confidence, DetectedEvent, EventType, Priority
+from monitors._outcome import UnitTally
 from monitors._common import (
     FeedClient,
     merge_appearances,
@@ -58,6 +59,7 @@ def check_google_news(
     events: list[DetectedEvent] = []
     pending_bucket_seeds: list[str] = []
     new_markers: dict[str, str] = {}
+    tally = UnitTally("google_news")
 
     for query in config.google_news.queries:
         seed_key = news_seed_key(query)
@@ -67,12 +69,14 @@ def check_google_news(
             content = feed_client.fetch(url)
             entries = parse_feed(content)
         except Exception:  # noqa: BLE001 -- per-query isolation
+            tally.record_failure()
             _log.exception(
                 "google_news: query %r failed; skipping (stays first-run if "
                 "not yet seeded)",
                 query,
             )
             continue
+        tally.record_success()
 
         query_seeds: list[str] = []
         for entry in entries:
@@ -123,4 +127,6 @@ def check_google_news(
                 "next run (no data loss)"
             )
 
+    # Every query dead => this run observed nothing; do not advance last_run.
+    tally.raise_if_total_failure()
     return events

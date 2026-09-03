@@ -29,6 +29,7 @@ from errors import (
     AlertDeliveryError,
     DispatchBridgeAuthError,
     DispatchBridgeError,
+    MonitorError,
     StateError,
 )
 from main import (
@@ -675,14 +676,65 @@ def test_should_run_stateerror_skips_only_that_monitor() -> None:
     assert store.recorded == ["youtube"]  # edgar not recorded (never reached body)
 
 
-def test_record_run_happens_even_when_body_raises() -> None:
+def test_failed_check_does_not_advance_last_run(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """INVERTED from the original behaviour, deliberately.
+
+    record_run used to fire from the `finally` whenever the monitor reached its
+    body, so a run whose check raised still stamped a timestamp claiming a
+    successful poll -- and the interval gate then suppressed the monitor until
+    the interval elapsed. A monitor whose source units ALL fail now raises, and
+    a raised check must NOT advance last_run.
+    """
     store = FakeStore()
     dispatcher = FakeDispatcher()
     spec = _spec(MonitorName.EDGAR, [], raises=RuntimeError("mid-run boom"))
-    rc = _run(store=store, dispatcher=dispatcher, monitors=[spec])
-    assert rc == 0
-    # ran=True was set before run_check() raised => record_run in finally.
+    with caplog.at_level(logging.WARNING, logger="fomo_monitor"):
+        rc = _run(store=store, dispatcher=dispatcher, monitors=[spec])
+    assert rc == 0  # still fail-soft: one monitor's failure is not fatal
+    assert store.recorded == []
+    assert any("NOT advancing last_run" in r.getMessage() for r in caplog.records)
+
+
+def test_total_source_failure_does_not_advance_last_run() -> None:
+    """End-to-end shape of the real case: the monitor's units all failed, so it
+    raised MonitorError, so last_run stays put and it is due again next pass."""
+    store = FakeStore()
+    spec = _spec(
+        MonitorName.GOOGLE_NEWS,
+        [],
+        raises=MonitorError("google_news: all 4 source unit(s) failed this run"),
+    )
+    assert _run(store=store, dispatcher=FakeDispatcher(), monitors=[spec]) == 0
+    assert store.recorded == []
+
+
+def test_partial_source_failure_still_advances_last_run() -> None:
+    """A monitor that lost SOME units still observed the rest: that is a
+    successful run and the timestamp must advance."""
+    store = FakeStore()
+    ev = make_event(identifier="e1")
+    spec = _spec(MonitorName.GOOGLE_NEWS, [ev])  # returned normally
+    assert _run(store=store, dispatcher=FakeDispatcher(), monitors=[spec]) == 0
+    assert store.recorded == ["google_news"]
+
+
+def test_successful_check_then_failed_dispatch_still_advances_last_run() -> None:
+    """The POLL succeeded; only delivery failed. last_run must advance (the
+    event is separately held un-committed so it re-fires)."""
+    store = FakeStore()
+    commit_log: list[tuple[str, str]] = []
+    ev = make_event(identifier="e1")
+    dispatcher = FakeDispatcher(
+        errors_by_id={"e1": {AlertChannel.EMAIL: "email send failed: OSError: dns"}},
+        sent_by_id={"e1": ()},
+    )
+    spec = _spec(MonitorName.EDGAR, [ev], commit_log=commit_log)
+    with pytest.raises(AlertDeliveryError):
+        _run(store=store, dispatcher=dispatcher, monitors=[spec])
     assert store.recorded == ["edgar"]
+    assert commit_log == []
 
 
 def test_record_run_failure_is_isolated() -> None:

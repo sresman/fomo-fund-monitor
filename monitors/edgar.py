@@ -47,6 +47,7 @@ from constants import (
 )
 from errors import MonitorError
 from models import Confidence, DetectedEvent, EventType, Priority
+from monitors._outcome import UnitTally
 from state_manager import StateStore
 
 _log = logging.getLogger(__name__)
@@ -444,6 +445,7 @@ def check_edgar(
 
     events: list[DetectedEvent] = []
     pending_seeds: dict[str, list[str]] = {}
+    tally = UnitTally("edgar")
 
     # 3. Loop over entities in config order.
     for entity in config.entities:
@@ -452,12 +454,14 @@ def check_edgar(
                 _process_entity(entity, store, client, seen, pending_seeds)
             )
         except Exception:  # noqa: BLE001 -- per-entity isolation for unattended cron
+            tally.record_failure()
             _log.exception(
                 "EDGAR: failed to process entity %s (CIK %s); skipping",
                 entity.key,
                 entity.cik,
             )
             continue
+        tally.record_success()
 
     # 4. Final seed write (exactly one save, re-load-and-merge). Non-fatal.
     if pending_seeds:
@@ -472,6 +476,9 @@ def check_edgar(
                 "re-seed on a later run (no data loss)"
             )
 
+    # Every entity dead (SEC outage, blocked User-Agent, rate-limit wall) =>
+    # this run observed nothing; do not advance last_run.
+    tally.raise_if_total_failure()
     return events
 
 

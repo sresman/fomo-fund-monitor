@@ -22,6 +22,9 @@ Design rules honored here:
     own state inside the monitor; the orchestrator does NOT re-commit them.
   * Fail-soft: one monitor's failure never aborts the others; a bridge failure
     never affects alerting, mark-seen, ``record_run``, or the exit code.
+  * ``last_run`` advances ONLY for a monitor whose check returned -- i.e. that
+    actually observed at least one source. A run in which every query errored
+    leaves the timestamp alone so the monitor retries immediately.
   * NO import-time side effects. ``logging.basicConfig`` runs INSIDE ``main()``.
   * Exit 0 for a normal run (even with per-monitor failures); exit 2 ONLY for a
     fatal config load or startup state-probe failure. A run in which any alert
@@ -413,10 +416,21 @@ def _process_monitor(
     """Run a single monitor end-to-end in isolation.
 
     ``should_run`` is INSIDE the try/except so a corrupt ``last_run`` timestamp
-    (raising ``StateError``) skips ONLY this monitor. ``record_run`` is in the
-    ``finally`` so a monitor that actually ran records its timestamp even if its
-    body raised mid-way -- EXCEPT when ``should_run`` itself failed (we never
-    reached the run) or short-circuited (not due yet).
+    (raising ``StateError``) skips ONLY this monitor.
+
+    ``record_run`` is in the ``finally`` but is gated on ``observed`` -- set only
+    once ``run_check()`` has RETURNED. ``last_run`` therefore advances iff the
+    monitor actually observed its sources:
+
+      * ``should_run`` failed or said "not due"  -> not recorded (never ran).
+      * ``run_check()`` raised                   -> NOT recorded. A monitor
+        whose source units ALL failed raises ``MonitorError`` (see
+        ``monitors/_outcome.py``), so a total source outage no longer stamps a
+        timestamp that claims a successful poll and then hides the monitor
+        behind its own interval gate.
+      * ``run_check()`` returned, dispatch/commit failed later -> RECORDED. The
+        poll DID succeed; a delivery failure is handled by leaving the event
+        un-committed (it re-fires) and by the end-of-run raise.
 
     Genuine alert-delivery failures are logged at ERROR *with their reason* and
     appended to ``failures``; ``run()`` raises once the whole pass is done. They
@@ -425,12 +439,17 @@ def _process_monitor(
     """
     name = spec.name.value
     ran = False
+    observed = False
     try:
         if not store.should_run(name, now, intervals):
             logger.debug("monitor %s not due; skipping", name)
             return
         ran = True
         events = spec.run_check()
+        # The check returned, so at least one source unit produced a usable
+        # observation (a monitor whose units ALL failed raises MonitorError --
+        # see monitors/_outcome.py). Only now may last_run advance.
+        observed = True
         logger.info("monitor %s produced %d event(s)", name, len(events))
 
         if dry_run:
@@ -501,11 +520,21 @@ def _process_monitor(
     except Exception as exc:  # noqa: BLE001 -- one monitor never aborts the rest
         logger.error("monitor %s failed: %s", name, exc)
     finally:
-        if ran and not dry_run:
+        if ran and observed and not dry_run:
             try:
                 store.record_run(name, now)
             except Exception as exc:  # noqa: BLE001 -- record fault isolated
                 logger.error("monitor %s: failed to record_run: %s", name, exc)
+        elif ran and not dry_run:
+            # The check itself failed, so this run observed nothing. Leaving
+            # last_run untouched makes the monitor due again on the very next
+            # pass instead of waiting out its interval behind a timestamp that
+            # claims a successful poll.
+            logger.warning(
+                "monitor %s: check failed; NOT advancing last_run so the "
+                "monitor retries on the next pass",
+                name,
+            )
 
 
 # --------------------------------------------------------------------------- #

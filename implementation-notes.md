@@ -171,3 +171,64 @@ alerting that commit 2 exists to prevent.
 an int. Five existing tests asserted `rc == 0` on a failed-alert path; they now
 assert `pytest.raises(AlertDeliveryError)` AND keep their original commit-state
 assertions, so the commit semantics are still pinned.
+
+---
+
+## 2026-09-03 — Commit 4: last_run advances only on an observed run
+
+**Problem, two layers deep.** (a) `main.py` called `record_run` from a `finally`
+gated only on "the monitor reached its body", so a check that raised mid-way
+still stamped a timestamp claiming a successful poll — and the interval gate then
+suppressed the monitor until the interval elapsed again. (b) Worse and less
+visible: every monitor isolates its sources in a per-unit
+`try/except ... continue`, so a run in which EVERY feed/query/page/entity failed
+returned normally with zero events and looked *successful* to the orchestrator.
+
+**Decision SD-A16 — a shared `UnitTally`, not per-monitor ad-hoc flags.** New
+`monitors/_outcome.py`. All seven monitors share the identical per-unit loop
+shape, so seven bespoke booleans would be seven chances to get the edge cases
+wrong. `raise_if_total_failure()` raises `MonitorError` iff units were attempted
+and none succeeded.
+
+**Decision SD-A17 — `_outcome.py` is its own module, not part of `_common.py`.**
+`_common.py` is documented as the RSS-family FEED helper module and `edgar.py`
+does not import it. Putting the tally there would have made the EDGAR monitor
+depend on the feed scaffold for no reason.
+
+**Decision SD-A18 — only ATTEMPTED units are tallied.** A unit skipped before any
+I/O — an empty feed URL in `podcast_rss`, an entity with no configured YouTube
+queries — is neither a success nor a failure. So a monitor with nothing to do
+never raises, and `attempted == 0` is an explicit no-op in
+`raise_if_total_failure`.
+
+**Decision SD-A19 (JUDGEMENT CALL) — a WAF/bot-challenge page counts as a
+FAILED unit.** In `conference_pages`, `is_suspect_content` catches a page whose
+HTTP fetch succeeded but whose body is a bot-challenge interstitial. The fetch
+worked, but the run learned nothing about the page — the same blind spot, for
+`last_run` purposes, as a transport error. Counted as a failure. Consequence: if
+every conference page is behind a challenge, the monitor raises and retries next
+pass rather than silently marking itself polled. Note this is live today —
+`state/seen_appearances.json` currently holds a `website:gavinbaker_net` snapshot
+whose text is `"Please wait while your request is being verified..."`.
+
+**Decision SD-A20 — `observed`, not `ran`, gates `record_run`.** The distinction
+is deliberate and load-bearing:
+
+  * `should_run` failed / not due   -> not recorded (unchanged).
+  * `run_check()` raised            -> NOT recorded (the change). Logged at
+    WARNING naming the consequence.
+  * `run_check()` returned, then dispatch or commit failed -> STILL recorded.
+    The poll genuinely succeeded; delivery failure is a separate concern already
+    handled by leaving the event un-committed plus the end-of-run raise.
+
+**Test inverted, deliberately.** `test_record_run_happens_even_when_body_raises`
+asserted the OLD contract. It is now
+`test_failed_check_does_not_advance_last_run` and asserts the opposite, with a
+docstring recording that the inversion is intentional. Three sibling tests pin
+the other three quadrants of SD-A20.
+
+**Open question for the operator.** `conference_pages` and `website_diff` run on
+a 1440-minute interval. With the cron effectively firing ~6x/weekday (GitHub
+throttles the `*/15` schedule), a failed daily check now retries on the next
+pass, which could be hours later — better than the previous 24-hour blackout,
+but still not prompt. Consider whether those intervals are still right.

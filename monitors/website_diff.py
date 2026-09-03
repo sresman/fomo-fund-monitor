@@ -51,6 +51,7 @@ from constants import (
     FEED_DESCRIPTION_EXCERPT_MAX,
 )
 from models import Confidence, DetectedEvent, EventType, Priority
+from monitors._outcome import UnitTally
 from monitors._common import (
     FeedClient,
     excerpt,
@@ -118,6 +119,7 @@ def check_website_diff(
     new_markers: dict[str, str] = {}
     content_events: list[DetectedEvent] = []
     feed_events: list[DetectedEvent] = []
+    tally = UnitTally("website_diff")
 
     for site in config.website_diff:
         try:
@@ -147,12 +149,14 @@ def check_website_diff(
                     now=now,
                 )
         except Exception:  # noqa: BLE001 -- per-site isolation
+            tally.record_failure()
             _log.exception(
                 "website_diff: site %s (%s) failed; skipping",
                 site.key,
                 site.url,
             )
             continue
+        tally.record_success()
 
     pending_state = bool(
         snapshot_updates or pending_rss_seeds or new_markers
@@ -180,6 +184,8 @@ def check_website_diff(
                 exc_info=True,
             )
 
+    # Every site dead => this run observed nothing; do not advance last_run.
+    tally.raise_if_total_failure()
     if save_ok:
         return content_events + feed_events
     return feed_events

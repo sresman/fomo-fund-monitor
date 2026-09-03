@@ -54,6 +54,7 @@ from constants import (
 )
 from errors import MonitorError
 from models import Confidence, DetectedEvent, EventType, Priority
+from monitors._outcome import UnitTally
 from monitors._common import (
     HttpGetter,
     cnbc_seed_key,
@@ -241,6 +242,7 @@ def check_cnbc(
     events: list[DetectedEvent] = []
     pending_bucket_seeds: list[str] = []
     new_markers: dict[str, str] = {}
+    tally = UnitTally("cnbc")
 
     for query in config.cnbc.queries:
         seed_key = cnbc_seed_key(query)
@@ -249,12 +251,14 @@ def check_cnbc(
             results = client.search(query)
             recognized = client.had_recognizable_structure()
         except Exception:  # noqa: BLE001 -- per-query isolation
+            tally.record_failure()
             _log.exception(
                 "cnbc: query %r failed; skipping (stays first-run if not yet "
                 "seeded)",
                 query,
             )
             continue
+        tally.record_success()
 
         # Zero-after-nonzero warning: a NON-first-run query returning zero
         # results may signal a block / layout change / JS degradation.
@@ -325,4 +329,6 @@ def check_cnbc(
                 "(no data loss; feed events still returned)"
             )
 
+    # Every query dead => this run observed nothing; do not advance last_run.
+    tally.raise_if_total_failure()
     return events

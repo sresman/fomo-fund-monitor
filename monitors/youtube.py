@@ -50,6 +50,7 @@ from constants import (
 )
 from errors import MonitorError
 from models import Confidence, DetectedEvent, EventType, Priority
+from monitors._outcome import UnitTally
 from monitors._common import (
     excerpt,
     merge_appearances,
@@ -390,6 +391,7 @@ def check_youtube(
     pending_bucket_seeds: list[str] = []
     new_markers: dict[str, str] = {}
     sweep_ran_ok = False
+    tally = UnitTally("youtube")
 
     for item in plan:
         seed_key = youtube_seed_key(item.query)
@@ -397,6 +399,7 @@ def check_youtube(
         try:
             results = client.search(item.query, config.youtube.max_results_per_query)
         except Exception:  # noqa: BLE001 -- per-query isolation
+            tally.record_failure()
             _log.exception(
                 "YouTube: query %r for entity %s failed; skipping (stays "
                 "first-run if not yet seeded)",
@@ -404,6 +407,7 @@ def check_youtube(
                 item.entity.key,
             )
             continue
+        tally.record_success()
 
         # Successful observation.
         if item.is_sweep:
@@ -460,4 +464,7 @@ def check_youtube(
                 "will retry next run (no data loss)"
             )
 
+    # Every planned query dead (quota exhausted, bad key, API outage) => this
+    # run observed nothing; do not advance last_run.
+    tally.raise_if_total_failure()
     return events

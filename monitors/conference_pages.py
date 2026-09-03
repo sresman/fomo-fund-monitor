@@ -37,6 +37,7 @@ from datetime import datetime
 from config import AppConfig
 from constants import DIFF_SNIPPET_MAX
 from models import Confidence, DetectedEvent, EventType, Priority
+from monitors._outcome import UnitTally
 from monitors._common import (
     FeedClient,
     conference_snapshot_key,
@@ -75,6 +76,7 @@ def check_conference_pages(
 
     snapshot_updates: dict[str, ConferenceSnapshot] = {}
     content_events: list[DetectedEvent] = []
+    tally = UnitTally("conference_pages")
 
     for page in config.conference_pages:
         # season_months is informational only in v1 (DEBUG log; do NOT skip --
@@ -91,6 +93,7 @@ def check_conference_pages(
             content = feed_client.fetch(page.url)
             new_text = extract_normalized_text(content)
         except Exception:  # noqa: BLE001 -- per-page isolation
+            tally.record_failure()
             _log.exception(
                 "conference_pages: page %s (%s) failed; skipping (stays "
                 "first-run if not yet seeded)",
@@ -99,8 +102,12 @@ def check_conference_pages(
             )
             continue
 
-        # WAF / min-length guard: do NOT seed, do NOT diff (SD-P5-8).
+        # WAF / min-length guard: do NOT seed, do NOT diff (SD-P5-8). Counted as
+        # a FAILED unit, not a successful one: the HTTP fetch worked but the run
+        # learned nothing about the page, which is the same blind spot for
+        # last_run purposes as an outright transport error.
         if is_suspect_content(new_text):
+            tally.record_failure()
             _log.warning(
                 "conference_pages: page %s (%s) returned suspect/short content "
                 "(len=%d); skipping (not seeded)",
@@ -109,6 +116,7 @@ def check_conference_pages(
                 len(new_text),
             )
             continue
+        tally.record_success()
 
         new_hash = content_hash(new_text)
         nkey = conference_snapshot_key(page.key)
@@ -145,6 +153,11 @@ def check_conference_pages(
                 )
             )
         # else: snapshot advanced (silent update); emit nothing.
+
+    # Every page dead (or every page a bot-challenge) => this run observed
+    # nothing; do not advance last_run. Checked BEFORE the state-persist block
+    # so it covers both return paths below.
+    tally.raise_if_total_failure()
 
     if not snapshot_updates:
         return content_events  # empty-save skip; nothing pending
