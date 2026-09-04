@@ -49,8 +49,6 @@ from state_manager import DigestEntry, StateStore
 
 logger = logging.getLogger("fomo_monitor.heartbeat")
 
-_GIT_TIMEOUT_SECONDS = 30
-
 
 # --------------------------------------------------------------------------- #
 # Report model
@@ -104,7 +102,7 @@ def _git(args: list[str], repo_root: Path) -> str:
             cwd=repo_root,
             capture_output=True,
             text=True,
-            timeout=_GIT_TIMEOUT_SECONDS,
+            timeout=constants.HEARTBEAT_GIT_TIMEOUT_SECONDS,
             check=False,
         )
     except (OSError, subprocess.SubprocessError) as exc:

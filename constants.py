@@ -258,6 +258,8 @@ HEARTBEAT_STALE_INTERVAL_MULTIPLIER: int = 3
 HEARTBEAT_SUBJECT_PREFIX: str = "[MONITOR HEARTBEAT]"
 # The monitoring workflow's filename, used to query its run history.
 HEARTBEAT_MONITOR_WORKFLOW_FILE: str = "monitor.yml"
+# Timeout for the read-only `git` subprocesses the heartbeat shells out to.
+HEARTBEAT_GIT_TIMEOUT_SECONDS: int = 30
 # GitHub REST endpoint for one workflow's runs. Optional enrichment: used only
 # when GITHUB_TOKEN + GITHUB_REPOSITORY are present (i.e. inside Actions).
 GITHUB_WORKFLOW_RUNS_URL: str = (

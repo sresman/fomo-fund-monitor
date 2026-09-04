@@ -43,6 +43,8 @@ import sys
 from pathlib import Path
 from typing import Any
 
+import constants
+
 # Field order for every emitted row (stable, diff-friendly).
 _FIELD_ORDER: tuple[str, ...] = (
     "date",
@@ -56,7 +58,10 @@ _FIELD_ORDER: tuple[str, ...] = (
     "url",
     "youtube_url",
 )
-_WATCH_URL = "https://www.youtube.com/watch?v={video_id}"
+# Reuses constants.YOUTUBE_WATCH_URL rather than restating the endpoint: the
+# generated youtube_url is parsed straight back by monitors/manifest.py, so the
+# two must not be able to drift apart.
+_WATCH_URL = constants.YOUTUBE_WATCH_URL
 
 CORPUS_MASTER = Path("transcripts/_master_manifest.json")
 CORPUS_YOUTUBE = Path("transcripts/youtube/_manifest.json")

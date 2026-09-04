@@ -4,6 +4,38 @@
 
 ---
 
+## Current State (as of Sep 3 2026) — ALERTING FIXED + NOISE POLICY
+
+**Alerting had never delivered a single alert** (not "broke on Aug 14" — broken
+from the first post-seed run, 2026-08-10T00:01:11Z). Gmail secrets were unset,
+and three layers hid it: the sender wrapped every exception in a constant
+string, the dispatcher stored the reason in `DispatchResult.errors`, and
+`main.py` read that map for TRUTHINESS ONLY and returned 0. Every run reported
+success for 25 days. Separately, EDGAR spells the Schedule 13D/G forms
+`"SCHEDULE 13G"` while config used `"SC 13G"`, so **every 13D/13G filing had been
+silently dropped** — including a 13D disclosing a $523.9M / 21.1% position.
+
+**Both fixed and verified in production.** The 2026-09-03T22:49Z run delivered 6
+EDGAR alerts and committed them; `state/seen_filings.json` changed for the first
+time since the Aug 9 seed. `origin/main` = 21 commits this session. `mypy
+--strict` clean; **pytest 616 passed** (from 450).
+
+**Alert policy is now FIRST-PARTY APPEARANCES + SEC FILINGS.** Everything else
+(Google News, MEDIUM YouTube, site diffs, other filings) is *silently captured* —
+detected and committed to dedupe state, never emailed — and surfaced in a weekly
+digest inside the heartbeat. Replaying the 20:31Z run's event mix through the new
+policy: **153 events → ~5 emails.**
+
+New capabilities: `--replay-since` (+ a `Replay Alerts` workflow so the app
+password stays in GitHub), `--backfill-seeds`, a weekly heartbeat with the
+silent-capture digest, `tools/build_master_manifest.py` (generates the YouTube
+dedupe manifest from the celeb-pm corpus), and CI running mypy + pytest.
+
+Full decision log: `implementation-notes.md` (SD-A1…SD-A55). Session handoff:
+`handoffs/2026-09-03-monitor.md`.
+
+---
+
 ## Current State (ALL 6 PROMPTS COMPLETE — as of Aug 1 2026)
 
 **Prompt 6 (ORCHESTRATOR + CI + repository_dispatch bridge) complete — the
@@ -176,15 +208,27 @@ this list lean.
 Format: `path/to/spec.md` -- brief context on what's being worked on.
 -->
 
-`docs/specs/monitoring_system_spec.md` -- Prompt 1 foundation complete
-(config loader, state manager, models/constants, tests). Continuing with
-Prompt 2 (alerting) next.
+_No active specs._ — `docs/specs/monitoring_system_spec.md` is fully
+implemented (all 6 prompts). The stale "continuing with Prompt 2" entry that sat
+here since July was cleared on 2026-09-03; it had been flagged in the Aug 10
+handoff. Post-spec work is logged in `implementation-notes.md`, not in a spec.
 
 ---
 
 ## Immediate Next Steps
 
-_Define initial tasks here._
+1. **Operator: flip repo visibility to private.** Not doable from a session —
+   the available `gh` token is `sresman-pr` with `{"admin": false}`. Cron is
+   unaffected; the cron was pre-emptively halved to `*/30` because private repos
+   bill Actions minutes.
+2. **Confirm the Dwarkesh 403 is gone** on the next scheduled run — the fix
+   (`67a0006`) landed after the last run that logged it.
+3. **Watch one weekly heartbeat land** (Mondays 13:00 UTC) and confirm the digest
+   renders AND drains. The drain path (`contents: write` + commit step) has not
+   yet executed in production.
+4. Decide on the Aleph inconsistency: the 2026-01-14 clip retrospective is
+   excluded by the first-party gate, the 2026-08-12 compilation is kept. Both are
+   compilations.
 
 ---
 
@@ -193,7 +237,28 @@ _Define initial tasks here._
 Full details in `workstreams/monitor-decisions.md` (loaded on demand, not at startup).
 
 **Key rules (always apply):**
-_None yet. Add rules here as architectural decisions are made._
+1. **Never swallow a delivery failure.** Senders name the underlying exception
+   CLASS and carry a redacted message; the orchestrator logs every reason and
+   `run()` raises `AlertDeliveryError` at the END of the pass so per-monitor
+   isolation survives but the job still exits non-zero.
+2. **"Not configured" ≠ "failed."** A routed channel with no credentials is
+   SKIPPED and does not block the dedupe commit. A configured channel that fails
+   does block it, so the event re-fires.
+3. **`alert_routing: []` is a silent capture, not a mistake** — detect, commit,
+   never alert, surface in the weekly digest. `DispatchResult.routed`
+   distinguishes it from "routed and nothing delivered", which is an outage.
+4. **`last_run` advances only for a run that OBSERVED its sources.** A monitor
+   whose source units all fail raises (`monitors/_outcome.py`).
+5. **First-party is the alert bar.** YouTube HIGH requires a known publisher
+   channel; podcast_rss requires the name in the title or near guest framing.
+   Titles are written by uploaders and prove nothing on their own.
+6. **Measure blast radius against real feed data before tightening a filter.**
+   This caught two of my own bugs in one session — a stem list missing bare
+   "join" (would have dropped 4 genuine appearances) and a backfill fetching
+   `site.url` instead of `<site.url>/feed`.
+7. **Config holds investor-specific values; code holds generic mechanism.** Full
+   names live in `config.yaml`; URL-stripping and token matching live in
+   `matches_keywords`.
 
 ---
 
