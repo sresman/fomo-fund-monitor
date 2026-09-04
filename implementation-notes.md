@@ -816,3 +816,35 @@ unmonitorable, per the operator's decision not to build headless rendering.
 `conference_change` keep alerting; the Dwarkesh 20-item window is accepted (the
 June 2024 Leopold episode is already in the corpus); manifest drift detection
 stays local, CI enforces only inertness.
+
+---
+
+## 2026-09-04 — Commit 22: veto reciprocal framing (the Aleph compilation)
+
+**Problem (operator).** Invested by Aleph 2026-08-12 passed the first-party gate
+on "in conversation", but its description reads "...pulls together the sharpest
+AI arguments from the last year of the show and puts them **in conversation with
+one another**". Archive clips juxtaposed, not a guest. Its sibling 2026-01-14
+retrospective was already excluded, so the two were inconsistent.
+
+**Three designs measured against every configured feed before choosing:**
+
+| option | keeps | newly suppressed |
+|---|---|---|
+| (a) drop the "in conversation" stems | 29 | the Aleph compilation only |
+| (b) general compilation veto ("special episode", "best of", "curates"…) | 27 | the Aleph compilation **+ 2 GENUINE ILTB Baker appearances** (2024-08-27, 2022-01-25, both in the transcript corpus) |
+| **(c) reciprocal-object veto** | **29** | **the Aleph compilation only** |
+
+**Decision SD-A56 — (c).** Same surgical result as (a) but it keeps the stem: a
+future "in conversation with Gavin Baker" still qualifies, where (a) would have
+given that up. (b) is a false-positive machine — a keyword-flavoured veto over
+free-text marketing copy suppresses real signal, which is the failure mode this
+whole gate exists to avoid.
+
+**Mechanism.** A framing stem whose object is reciprocal (`with|among|between` +
+`one another|each other|themselves`, within 60 chars of the stem) is skipped, and
+only that stem — the loop continues, so a genuine framing elsewhere in the same
+window still qualifies (`test_veto_only_kills_the_stem_it_follows`).
+
+**Live effect:** 30 -> 29 first-party appearances; the single delta is the
+intended one.

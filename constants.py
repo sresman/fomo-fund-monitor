@@ -174,6 +174,25 @@ APPEARANCE_FRAMING_STEMS: tuple[str, ...] = (
 # Characters either side of the matched name that are scanned for a stem.
 APPEARANCE_FRAMING_WINDOW_CHARS: int = 200
 
+# A framing stem followed by a RECIPROCAL object is a compilation tell, not a
+# guest. "Michael Eisenberg ... puts them in conversation WITH ONE ANOTHER" is
+# archive clips juxtaposed; "in conversation with Gavin Baker" is an appearance.
+# Applied to the text immediately AFTER a matched stem, within
+# APPEARANCE_RECIPROCAL_LOOKAHEAD_CHARS, so it can only veto the stem it follows.
+#
+# Deliberately narrow. Two broader designs were measured against every configured
+# feed and rejected: dropping the "in conversation" stems outright also worked
+# but gave up a real guest-framing phrase, and a general "special episode / best
+# of / curates" compilation veto suppressed TWO GENUINE ILTB Baker appearances
+# (2024-08-27, 2022-01-25) that are in the transcript corpus.
+APPEARANCE_RECIPROCAL_OBJECTS: tuple[str, ...] = (
+    "one another",
+    "each other",
+    "themselves",
+)
+APPEARANCE_RECIPROCAL_PREPOSITIONS: tuple[str, ...] = ("with", "among", "between")
+APPEARANCE_RECIPROCAL_LOOKAHEAD_CHARS: int = 60
+
 # --- Seeding / scheduling MARKER keys (live in SeenAppearances.markers) ---
 # Per-source seed keys are BUILT at runtime from these prefixes (see
 # monitors/_common.py seed-key helpers). They are NOT dedupe identifiers; they

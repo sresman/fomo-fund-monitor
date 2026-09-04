@@ -439,3 +439,41 @@ def test_framing_far_from_the_name_does_not_qualify() -> None:
 
 def test_no_keyword_at_all_is_false() -> None:
     assert is_first_party_appearance("Unrelated", "nothing here", KW) is False
+
+
+def test_compilation_phrasing_is_not_an_appearance() -> None:
+    """Invested by Aleph 2026-08-12 slipped through the framing check on "in
+    conversation" because the description reads "...puts them in conversation
+    with one another". That is archive clips juxtaposed, not a guest."""
+    summary = (
+        "On this special episode of Invested, Michael Eisenberg pulls together "
+        "the sharpest AI arguments from the last year of the show and puts them "
+        "in conversation with one another. You'll hear from Gavin Baker, Sarah "
+        "Tavel, Micha Kaufman and others."
+    )
+    assert is_first_party_appearance(
+        "Almost Everything We Believed About AI a Year Ago Was Wrong", summary, KW
+    ) is False
+
+
+def test_a_real_in_conversation_guest_still_qualifies() -> None:
+    """The veto must not cost the stem. "in conversation with <person>" is a
+    normal way to announce a guest and has to keep working."""
+    assert is_first_party_appearance(
+        "Episode 12", "This week, in conversation with Gavin Baker on AI capex", KW
+    ) is True
+
+
+@pytest.mark.parametrize("phrase", ["one another", "each other", "themselves"])
+def test_all_reciprocal_objects_are_vetoed(phrase: str) -> None:
+    summary = f"We put Gavin Baker and six others in conversation with {phrase}."
+    assert is_first_party_appearance("Best of 2025", summary, KW) is False
+
+
+def test_veto_only_kills_the_stem_it_follows() -> None:
+    """A compilation phrase elsewhere must not veto a genuine framing."""
+    summary = (
+        "We put the clips in conversation with one another. Separately, "
+        "Gavin Baker joins the show to discuss compute."
+    )
+    assert is_first_party_appearance("E300", summary, KW) is True

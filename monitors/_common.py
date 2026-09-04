@@ -31,6 +31,9 @@ import requests
 from constants import (
     APPEARANCE_FRAMING_STEMS,
     APPEARANCE_FRAMING_WINDOW_CHARS,
+    APPEARANCE_RECIPROCAL_LOOKAHEAD_CHARS,
+    APPEARANCE_RECIPROCAL_OBJECTS,
+    APPEARANCE_RECIPROCAL_PREPOSITIONS,
     HTTP_TIMEOUT_SECONDS,
     USER_AGENT,
 )
@@ -326,6 +329,17 @@ _FRAMING_RE = re.compile(
     re.IGNORECASE,
 )
 
+# "<stem> ... with one another" -> clips juxtaposed, not a guest. Matched only in
+# the text immediately following a stem, so it vetoes that stem alone.
+_RECIPROCAL_RE = re.compile(
+    r"(?:"
+    + "|".join(re.escape(p) for p in APPEARANCE_RECIPROCAL_PREPOSITIONS)
+    + r")\s+(?:"
+    + "|".join(re.escape(o) for o in APPEARANCE_RECIPROCAL_OBJECTS)
+    + r")",
+    re.IGNORECASE,
+)
+
 
 def is_first_party_appearance(
     title: str, summary: str, keywords: Sequence[str]
@@ -351,6 +365,11 @@ def is_first_party_appearance(
 
     URLs are stripped by ``matches_keywords`` before matching, so a name inside
     a link never qualifies via either route.
+
+    A framing stem whose object is RECIPROCAL is rejected: "puts them in
+    conversation WITH ONE ANOTHER" is a compilation of archive clips, whereas
+    "in conversation with Gavin Baker" is an appearance. Only the stem it follows
+    is vetoed, so a genuine framing elsewhere in the window still qualifies.
     """
     if matches_keywords((title,), keywords):
         return True
@@ -366,7 +385,14 @@ def is_first_party_appearance(
         pattern = re.compile(rf"(?<![a-z0-9]){re.escape(needle)}(?![a-z0-9])")
         for match in pattern.finditer(haystack):
             start = max(0, match.start() - window)
-            if _FRAMING_RE.search(haystack[start : match.end() + window]):
+            snippet = haystack[start : match.end() + window]
+            for framing in _FRAMING_RE.finditer(snippet):
+                lookahead = snippet[
+                    framing.start() : framing.start()
+                    + APPEARANCE_RECIPROCAL_LOOKAHEAD_CHARS
+                ]
+                if _RECIPROCAL_RE.search(lookahead):
+                    continue  # compilation phrasing; try the next stem
                 return True
     return False
 
