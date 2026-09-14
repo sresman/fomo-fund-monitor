@@ -1,1 +1,22 @@
-[]
+[
+  {
+    "captured_at": "2026-09-14T19:41:16.580029+00:00",
+    "entity_key": "situational_awareness",
+    "event_type": "youtube_medium",
+    "identifier": "FGD5sZRZfE8",
+    "published": "2026-09-14T17:57:49+00:00",
+    "source": "TheShadowArchives",
+    "title": "WARNING: From AGI to Superintelligence in Months? (Leopold Aschenbrenner)",
+    "url": "https://www.youtube.com/watch?v=FGD5sZRZfE8"
+  },
+  {
+    "captured_at": "2026-09-14T19:41:16.580029+00:00",
+    "entity_key": "",
+    "event_type": "google_news",
+    "identifier": "CBMihAFBVV95cUxPVklhQkJFaTAyQ0U5NF9NVndjNGZ0UnM5VWNpZzVZU2ZQOF9PQTVTV09SQzVNVDhtVjdYR1dydG5DdVBrU0JEekxWcDB1bHE4T2g0amwwTmxZUHFqWmxjZDcyX3FNYnAtX25XVzVoRkdGbEtVSUhXZ0xkOGY4T2FLdGx4ZE0",
+    "published": "2026-09-14T18:27:27+00:00",
+    "source": "Protos | Informed crypto news",
+    "title": "Leopold Aschenbrenner is back to losing money in AI stocks - Protos | Informed crypto news",
+    "url": "https://news.google.com/rss/articles/CBMihAFBVV95cUxPVklhQkJFaTAyQ0U5NF9NVndjNGZ0UnM5VWNpZzVZU2ZQOF9PQTVTV09SQzVNVDhtVjdYR1dydG5DdVBrU0JEekxWcDB1bHE4T2g0amwwTmxZUHFqWmxjZDcyX3FNYnAtX25XVzVoRkdGbEtVSUhXZ0xkOGY4T2FLdGx4ZE0?oc=5"
+  }
+]
