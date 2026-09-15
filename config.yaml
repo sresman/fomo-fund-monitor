@@ -58,7 +58,10 @@ youtube:
     - "Sohn Conference Foundation"
     - "Heller House"
     - "Generating Alpha Podcast"
-    - "The Limitless Podcast"
+    - "Limitless Podcast"              # NOT "The Limitless Podcast" -- the real
+                                       # channel title has no article, and the
+                                       # membership test is exact-after-normalise,
+                                       # so the old entry never matched anything.
     - "TBPN"
     - "Aleph"
   # NOTE (2026-09-03): framing_keywords NO LONGER promotes a video to HIGH.

@@ -973,3 +973,91 @@ Now an all-`None` group set returns `None`
 
 **Replayed over the real 168-item corpus: 168 → 9 rendered.** `mypy --strict`
 clean; **pytest 664 passed** (from 616).
+
+---
+
+## 2026-09-15 — Commit 24: FLAG-YT-TITLE — channel before surname
+
+**The bug.** `_classify` tested `surname_in_title` FIRST and returned None if it
+failed, so `known_channels` was never reached. An allowlisted publisher's own
+upload was discarded whenever the publisher did not put the guest's surname in
+the title — which is common, because a show titles an episode by its topic.
+
+Concrete instance: a16z, 2026-08-31, `FGC4ofTcg2k`, **74 minutes**, "Why AI
+Demand Is Outrunning Compute Supply". Never entered the `youtube` dedupe bucket
+at all.
+
+### Two checks the operator required before shipping
+
+Swept the back catalogue of all 17 allowlisted channels (34 `search.list` calls,
+~3,400 quota units): **114 candidate videos**, 43 with the surname in the title
+(HIGH today), **71 EXCLUDEd by the ordering bug**, of which 10 are already
+deduped via the manifest → **61 would newly alert**.
+
+**Check 1 — does membership-alone flood? YES.**
+
+| rule | newly alerts HIGH |
+|---|---|
+| channel membership alone (operator's first proposal) | 61 |
+| + 20-minute duration floor | 25 |
+| **+ `is_first_party_appearance` on the description** | **4** |
+
+A duration floor does NOT rescue it. The noise on these channels is long-form
+too: Bloomberg `The Opening Trade` (95m), `AI Jitters Return` (87m), All-In
+panels of 96–110m that merely mention the name, Dwarkesh (76m, 133m) and ILTB
+(71m, 45m) episodes with entirely different guests. **Duration separates clips
+from shows; it cannot separate "he is on it" from "they talked about him."** The
+description can: "David George *sits down with* Gavin Baker", "Gavin Baker, Ben
+Shapiro and Phil Deutch *join the show*".
+
+**SD-A61 — on-allowlist qualifies on surname-in-title OR
+`is_first_party_appearance(title, description)`.** Reuses the gate already built,
+audited and tested for `podcast_rss` (SD-A56). Off-allowlist is untouched:
+surname must be in the title, result is MEDIUM. Validated against the real sweep:
+**4 newly promoted, 0 regressions** among the 43 already-HIGH.
+
+Of the 4: **2 genuine** (a16z 2026-08-31 Baker; All-In 2025-08-09 "Gavin Baker,
+Ben Shapiro, and Phil Deutch join the show") and **2 false positives** —
+Bloomberg `Big Take` (reporters *join* to discuss Leopold) and TBPN `Martin
+Shkreli Breaks Down the Collapse` (Shkreli is the guest). Both are the
+mention-vs-appearance problem already documented as unsolved; two spurious
+emails across a three-year back catalogue is the price.
+
+**Check 2 — what has the bug actually cost? Nothing, so far.**
+
+- **a16z 2026-08-31** — the only genuine appearance it dropped POST-SEED
+  (2026-08-09+). The a16z podcast FEED caught it; guid
+  `38ff9198-903d-4a96-8b02-b577f87670c0` alerted 2026-09-03T22:51:38Z. Net loss
+  to the corpus: **zero**.
+- **All-In 2025-08-09** — genuine, but pre-seed, so it would have been seeded
+  rather than alerted regardless.
+
+**The RSS feeds have been covering for this bug.** That is luck, not design:
+**seven of the 17 allowlisted channels have no feed configured** — Dwarkesh
+Patel, CNBC Television, Bloomberg Television, iConnections, Sohn Conference
+Foundation, Heller House, Limitless Podcast. An appearance on any of those whose
+title omits the surname vanishes with no trace at all.
+
+**SD-A62 — classify AFTER `videos.list`, not before.** `search.list` truncates
+its description copy to ~120 chars, which is not enough to find guest framing
+reliably. `check_youtube` is now two passes: collect candidates surviving dedupe
+→ ONE batched `videos.list` (`contentDetails,snippet`) → classify on the full
+description. No extra API cost: that call was already added in Commit 23 for
+durations. `durations()` became `details() -> dict[str, VideoDetails]`. An
+unresolved id degrades to the search snippet + unknown duration — never dropped.
+
+**SD-A63 — `"The Limitless Podcast"` → `"Limitless Podcast"`.** The real channel
+title has no article and membership is exact-after-normalise, so **that allowlist
+entry had never matched anything**. Fixed as instructed.
+
+**Residual the operator should see:** of 10 Limitless videos in the sweep, the
+description gate excludes 8, but **2 classify HIGH** — 2026-06-17 "Leopold
+Aschenbrenner says 'No More Stocks!'" and 2026-03-03 "Forget NVIDIA | This
+24-Year-Old's $4.5B Bet… (Leopold Aschenbrenner)". Both reach HIGH via the
+surname-in-title path, which bypasses the description gate on an allowlisted
+channel. Both are commentary — the descriptions read "We discuss Leopold
+Aschenbrenner's AI-focused portfolio". **Limitless looks like a channel that
+covers these people, not one they appear on, so the allowlist entry itself is
+questionable.** Left in place as instructed; removing it is a one-line change.
+
+`mypy --strict` clean; **pytest 674 passed** (from 664).

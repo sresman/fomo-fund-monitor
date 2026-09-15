@@ -85,11 +85,13 @@ YOUTUBE_SEARCH_PART: str = "snippet"
 YOUTUBE_SEARCH_TYPE: str = "video"
 YOUTUBE_SEARCH_ORDER: str = "date"  # newest first
 YOUTUBE_WATCH_URL: str = "https://www.youtube.com/watch?v={video_id}"
-# videos.list, used ONLY to resolve durations for videos already discovered by
-# search.list (which omits contentDetails). Costs 1 quota unit per call against
-# YOUTUBE_SEARCH_COST_UNITS=100 for a search, so one batched call per run is
-# noise against the daily quota.
-YOUTUBE_VIDEOS_PART: str = "contentDetails"
+# videos.list, for videos already discovered by search.list. It supplies two
+# things search.list cannot: contentDetails (duration, omitted entirely) and the
+# FULL snippet description -- search.list truncates its copy to roughly 120
+# characters, which is not enough to find guest framing reliably. Costs 1 quota
+# unit per call against YOUTUBE_SEARCH_COST_UNITS=100 for a search, so one
+# batched call per run is noise against the daily quota.
+YOUTUBE_VIDEOS_PART: str = "contentDetails,snippet"
 # videos.list accepts at most 50 ids per call.
 YOUTUBE_VIDEOS_BATCH_MAX: int = 50
 

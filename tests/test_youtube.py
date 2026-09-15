@@ -18,10 +18,12 @@ from constants import ENV_YOUTUBE_API_KEY, MARKER_YOUTUBE_SWEEP
 from errors import MonitorError
 from models import AlertChannel, Confidence, EventType, Priority
 from monitors.youtube import (
+    VideoDetails,
     VideoResult,
     YouTubeApiClient,
     check_youtube,
     parse_iso8601_duration,
+    _Classification,
     _parse_search_response,
 )
 from monitors._common import youtube_seed_key
@@ -41,35 +43,35 @@ class FakeYouTubeClient:
     """Returns canned results per query; unknown query -> (); a designated
     query -> raises MonitorError (isolation test).
 
-    ``durations`` defaults to resolving NOTHING, which is the honest default for
-    most tests here: an unresolved id leaves payload["duration"] == "" exactly
-    as it did before videos.list existed. Pass ``durations_by_id`` to exercise
-    the enrichment, or ``raise_on_durations`` to exercise its failure path.
+    ``details`` defaults to resolving NOTHING, which is the honest default for
+    most tests here: an unresolved id falls back to the search snippet and an
+    unknown duration. Pass ``details_by_id`` to exercise the enrichment, or
+    ``raise_on_details`` to exercise its failure path.
     """
 
     def __init__(
         self,
         by_query: dict[str, tuple[VideoResult, ...]],
         raise_for: frozenset[str] = frozenset(),
-        durations_by_id: dict[str, int] | None = None,
-        raise_on_durations: bool = False,
+        details_by_id: dict[str, VideoDetails] | None = None,
+        raise_on_details: bool = False,
     ) -> None:
         self._by_query = by_query
         self._raise_for = raise_for
-        self._durations = durations_by_id or {}
-        self._raise_on_durations = raise_on_durations
-        self.duration_calls: list[tuple[str, ...]] = []
+        self._details = details_by_id or {}
+        self._raise_on_details = raise_on_details
+        self.detail_calls: list[tuple[str, ...]] = []
 
     def search(self, query: str, max_results: int) -> tuple[VideoResult, ...]:
         if query in self._raise_for:
             raise MonitorError(f"boom for {query}")
         return self._by_query.get(query, ())
 
-    def durations(self, video_ids: tuple[str, ...]) -> dict[str, int]:
-        self.duration_calls.append(video_ids)
-        if self._raise_on_durations:
-            raise MonitorError("boom for durations")
-        return {v: self._durations[v] for v in video_ids if v in self._durations}
+    def details(self, video_ids: tuple[str, ...]) -> dict[str, VideoDetails]:
+        self.detail_calls.append(video_ids)
+        if self._raise_on_details:
+            raise MonitorError("boom for details")
+        return {v: self._details[v] for v in video_ids if v in self._details}
 
 
 def vid(
@@ -333,7 +335,7 @@ def test_suffix_stripped_surname() -> None:
     # person "Foo Bar Jr." -> surname "bar", matched in the title.
     from monitors.youtube import _classify
 
-    cls = _classify("Foo Bar Jr.", "the bar segment", "Zzz", ())
+    cls = _classify("Foo Bar Jr.", "the bar segment", "Zzz", (), "")
     assert cls is not None
     assert cls.event_type == EventType.YOUTUBE_MEDIUM
 
@@ -561,7 +563,7 @@ def test_sweep_runs_first_then_once_per_day(
             called.append(query)
             return ()
 
-        def durations(self, video_ids: tuple[str, ...]) -> dict[str, int]:
+        def details(self, video_ids: tuple[str, ...]) -> dict[str, VideoDetails]:
             return {}
 
     # First run -> broad + sweep both called.
@@ -835,13 +837,13 @@ def test_durations_fill_the_event_payload(
     _seed_all_markers(store, feeds_config)
     client = FakeYouTubeClient(
         {Q_BAKER_BROAD: (vid("aaaaaaaaaa1", "Gavin Baker on the AI bubble"),)},
-        durations_by_id={"aaaaaaaaaa1": 4466},
+        details_by_id={"aaaaaaaaaa1": VideoDetails(4466, "")},
     )
     events = check_youtube(feeds_config, store, client, NOW)
     assert [e.payload["duration"] for e in events] == ["4466"]
 
 
-def test_duration_lookup_is_one_batched_call_for_all_events(
+def test_details_lookup_is_one_batched_call_for_all_candidates(
     feeds_config: AppConfig, store: StateStore
 ) -> None:
     """Quota discipline: videos.list is 1 unit, but one call per video would
@@ -854,10 +856,13 @@ def test_duration_lookup_is_one_batched_call_for_all_events(
                 vid("aaaaaaaaaa2", "Gavin Baker again"),
             )
         },
-        durations_by_id={"aaaaaaaaaa1": 4466, "aaaaaaaaaa2": 96},
+        details_by_id={
+            "aaaaaaaaaa1": VideoDetails(4466, ""),
+            "aaaaaaaaaa2": VideoDetails(96, ""),
+        },
     )
     check_youtube(feeds_config, store, client, NOW)
-    assert client.duration_calls == [("aaaaaaaaaa1", "aaaaaaaaaa2")]
+    assert client.detail_calls == [("aaaaaaaaaa1", "aaaaaaaaaa2")]
 
 
 def test_unresolved_duration_stays_empty_not_zero(
@@ -866,13 +871,13 @@ def test_unresolved_duration_stays_empty_not_zero(
     _seed_all_markers(store, feeds_config)
     client = FakeYouTubeClient(
         {Q_BAKER_BROAD: (vid("aaaaaaaaaa1", "Gavin Baker on the AI bubble"),)},
-        durations_by_id={},  # resolves nothing
+        details_by_id={},  # resolves nothing
     )
     events = check_youtube(feeds_config, store, client, NOW)
     assert [e.payload["duration"] for e in events] == [""]
 
 
-def test_duration_lookup_failure_never_fails_the_run(
+def test_details_lookup_failure_never_fails_the_run(
     feeds_config: AppConfig, store: StateStore
 ) -> None:
     """Enrichment is best-effort: a videos.list outage must degrade the digest's
@@ -880,17 +885,156 @@ def test_duration_lookup_failure_never_fails_the_run(
     _seed_all_markers(store, feeds_config)
     client = FakeYouTubeClient(
         {Q_BAKER_BROAD: (vid("aaaaaaaaaa1", "Gavin Baker on the AI bubble"),)},
-        raise_on_durations=True,
+        raise_on_details=True,
     )
     events = check_youtube(feeds_config, store, client, NOW)
     assert [e.identifier for e in events] == ["aaaaaaaaaa1"]
     assert events[0].payload["duration"] == ""
 
 
-def test_no_events_means_no_duration_call(
+def test_no_candidates_means_no_details_call(
     feeds_config: AppConfig, store: StateStore
 ) -> None:
     _seed_all_markers(store, feeds_config)
     client = FakeYouTubeClient({})
     assert check_youtube(feeds_config, store, client, NOW) == []
-    assert client.duration_calls == []
+    assert client.detail_calls == []
+
+
+# --------------------------------------------------------------------------- #
+# Channel-first classification (FLAG-YT-TITLE, 2026-09-15)
+# --------------------------------------------------------------------------- #
+
+A16Z_DESC = (
+    "a16z's David George sits down with Gavin Baker to unpack the state of "
+    "the AI boom, why demand for intelligence may still be dramatically "
+    "underestimated, and why the outcome doesn't have to be winner-take-all."
+)
+ALLIN_DESC = (
+    "(0:00) Bestie intros! Gavin Baker, Ben Shapiro, and Phil Deutch join the "
+    "show (7:32) GPT-5 underwhelms, benchmark saturation"
+)
+# A 95-minute Bloomberg market show that merely MENTIONS him -- the exact shape
+# a duration floor cannot tell apart from a real appearance.
+MARKET_SHOW_DESC = (
+    "Technology stocks rallied as a rebound in chipmakers carried into Friday. "
+    "Gavin Baker's Atreides was among the funds cited in the selloff coverage."
+)
+
+
+def _cls(
+    title: str,
+    channel: str,
+    description: str = "",
+    person: str = "Gavin Baker",
+) -> "_Classification | None":
+    from monitors.youtube import _classify
+
+    return _classify(person, title, channel, ("a16z", "All-In Podcast"), description)
+
+
+def test_allowlisted_channel_qualifies_on_description_framing() -> None:
+    """THE BUG. a16z titled a 74-minute Baker interview "Why AI Demand Is
+    Outrunning Compute Supply" -- no surname -- and it never entered the dedupe
+    bucket at all. The publisher is the first-party signal; the title is not."""
+    cls = _cls("Why AI Demand Is Outrunning Compute Supply", "a16z", A16Z_DESC)
+    assert cls is not None
+    assert cls.event_type == EventType.YOUTUBE_HIGH
+
+
+def test_allowlisted_panel_show_qualifies_on_join_framing() -> None:
+    cls = _cls(
+        "OpenAI's GPT-5 Flop, AI's Unlimited Market, China's Big Advantage",
+        "All-In Podcast",
+        ALLIN_DESC,
+    )
+    assert cls is not None
+    assert cls.event_type == EventType.YOUTUBE_HIGH
+
+
+def test_allowlisted_channel_still_qualifies_on_surname_in_title() -> None:
+    """The original rule is preserved exactly -- no regression for the 43 videos
+    already classifying HIGH on title alone."""
+    cls = _cls("Baker chat", "All-In Podcast")
+    assert cls is not None
+    assert cls.event_type == EventType.YOUTUBE_HIGH
+
+
+def test_allowlisted_channel_membership_alone_is_not_enough() -> None:
+    """Measured over the full back catalogue of all 17 allowlisted channels,
+    admitting on membership alone would newly alert on 61 videos; a 20m floor
+    only cuts that to 25, because the noise is long-form too. The description
+    gate cuts the same 61 to 4."""
+    assert _cls("Amazon Lifts Tech Rebound | The Opening Trade", "a16z") is None
+
+
+def test_allowlisted_mention_without_framing_is_excluded() -> None:
+    cls = _cls("Amazon Lifts Tech Rebound", "a16z", MARKET_SHOW_DESC)
+    assert cls is None
+
+
+def test_off_allowlist_rule_is_unchanged_surname_in_title() -> None:
+    cls = _cls("Gavin Baker on the AI bubble", "Some Random Channel")
+    assert cls is not None
+    assert cls.event_type == EventType.YOUTUBE_MEDIUM
+
+
+def test_off_allowlist_description_framing_does_not_promote() -> None:
+    """Off the allowlist the description is NOT consulted: anyone can write
+    "sits down with" under a reupload."""
+    assert _cls("Why AI Demand Is Outrunning", "Some Random Channel", A16Z_DESC) is None
+
+
+def test_off_allowlist_surname_in_title_stays_medium_despite_framing() -> None:
+    cls = _cls("Gavin Baker interview", "Some Random Channel", A16Z_DESC)
+    assert cls is not None
+    assert cls.event_type == EventType.YOUTUBE_MEDIUM
+
+
+def test_full_description_is_used_for_classification(
+    feeds_config: AppConfig, store: StateStore
+) -> None:
+    """End-to-end: search.list truncates descriptions to ~120 chars, so the
+    framing must be read from the videos.list copy."""
+    _seed_all_markers(store, feeds_config)
+    truncated = "a16z's David George sits down with ..."
+    client = FakeYouTubeClient(
+        {
+            Q_BAKER_BROAD: (
+                vid(
+                    "aaaaaaaaaa1",
+                    "Why AI Demand Is Outrunning Compute Supply",
+                    channel="All-In Podcast",
+                    description=truncated,
+                ),
+            )
+        },
+        details_by_id={"aaaaaaaaaa1": VideoDetails(4466, A16Z_DESC)},
+    )
+    events = check_youtube(feeds_config, store, client, NOW)
+    assert [e.event_type for e in events] == [EventType.YOUTUBE_HIGH]
+    assert events[0].payload["duration"] == "4466"
+
+
+def test_details_failure_falls_back_to_the_search_snippet(
+    feeds_config: AppConfig, store: StateStore
+) -> None:
+    """If videos.list is down, classification still runs on what search gave
+    us -- degraded, never skipped."""
+    _seed_all_markers(store, feeds_config)
+    client = FakeYouTubeClient(
+        {
+            Q_BAKER_BROAD: (
+                vid(
+                    "aaaaaaaaaa1",
+                    "Why AI Demand Is Outrunning Compute Supply",
+                    channel="All-In Podcast",
+                    description=A16Z_DESC,
+                ),
+            )
+        },
+        raise_on_details=True,
+    )
+    events = check_youtube(feeds_config, store, client, NOW)
+    assert [e.event_type for e in events] == [EventType.YOUTUBE_HIGH]
+    assert events[0].payload["duration"] == ""

@@ -56,6 +56,7 @@ from models import Confidence, DetectedEvent, EventType, Priority
 from monitors._outcome import UnitTally
 from monitors._common import (
     excerpt,
+    is_first_party_appearance,
     merge_appearances,
     surname_of,
     youtube_seed_key,
@@ -77,6 +78,19 @@ class VideoResult:
     title: str
     channel_title: str
     published_at: str  # raw ISO8601 string from API (parsed downstream)
+    description: str
+
+
+@dataclass(frozen=True)
+class VideoDetails:
+    """What videos.list adds on top of a search hit.
+
+    ``duration_seconds`` is None when unresolved/unparseable -- UNKNOWN, never 0.
+    ``description`` is the FULL description; search.list truncates its copy to
+    roughly 120 characters, which is not enough to find guest framing reliably.
+    """
+
+    duration_seconds: int | None
     description: str
 
 
@@ -139,11 +153,12 @@ def _as_str(v: object) -> str:
 class YouTubeClient(Protocol):
     def search(self, query: str, max_results: int) -> tuple[VideoResult, ...]: ...
 
-    def durations(self, video_ids: tuple[str, ...]) -> dict[str, int]:
-        """Map video id -> duration in seconds, for the ids that resolved.
+    def details(self, video_ids: tuple[str, ...]) -> dict[str, VideoDetails]:
+        """Map video id -> VideoDetails, for the ids that resolved.
 
-        An id absent from the result means "unknown", NOT "zero-length": callers
-        must treat absence as missing metadata, never as a short video.
+        An id absent from the result means "unknown", NOT "zero-length" and NOT
+        "no description": callers must treat absence as missing metadata and
+        fall back to what search.list gave them.
         """
         ...
 
@@ -216,19 +231,19 @@ class YouTubeApiClient:
             raise MonitorError(f"YouTube search failed for {query!r}: {exc}") from exc
         return _parse_search_response(response)
 
-    def durations(self, video_ids: tuple[str, ...]) -> dict[str, int]:
-        """Resolve durations via videos.list, batched at the API's 50-id limit.
+    def details(self, video_ids: tuple[str, ...]) -> dict[str, VideoDetails]:
+        """Resolve duration + FULL description via videos.list, batched at the
+        API's 50-id limit.
 
-        A failing BATCH is logged and skipped rather than raised: durations are
-        an enrichment, and an unresolved id is handled downstream as "unknown"
-        (kept), so a videos.list outage degrades the digest's precision but
-        never loses an event.
+        A failing BATCH is logged and skipped rather than raised: this is an
+        enrichment, and an unresolved id degrades to the search.list snippet
+        plus an unknown duration -- never a lost event.
         """
         wanted = tuple(dict.fromkeys(v for v in video_ids if v != ""))
         if not wanted:
             return {}
         service = self._get_service()
-        resolved: dict[str, int] = {}
+        resolved: dict[str, VideoDetails] = {}
         for start in range(0, len(wanted), YOUTUBE_VIDEOS_BATCH_MAX):
             batch = wanted[start : start + YOUTUBE_VIDEOS_BATCH_MAX]
             try:
@@ -237,10 +252,10 @@ class YouTubeApiClient:
                     id=",".join(batch),
                 )
                 resolved.update(_parse_videos_response(request.execute()))
-            except Exception:  # noqa: BLE001 -- enrichment; unknown == kept
+            except Exception:  # noqa: BLE001 -- enrichment; degrades, never loses
                 _log.exception(
-                    "YouTube: videos.list failed for %d id(s); their durations "
-                    "stay unknown",
+                    "YouTube: videos.list failed for %d id(s); they fall back "
+                    "to the search snippet and an unknown duration",
                     len(batch),
                 )
         return resolved
@@ -275,20 +290,23 @@ def parse_iso8601_duration(value: str) -> int | None:
     return ((days * 24 + hours) * 60 + minutes) * 60 + seconds
 
 
-def _parse_videos_response(response: object) -> dict[str, int]:
+def _parse_videos_response(response: object) -> dict[str, VideoDetails]:
     root = _as_dict(response, "youtube.videos")
     items = _as_list(root.get("items", []), "youtube.videos.items")
-    out: dict[str, int] = {}
+    out: dict[str, VideoDetails] = {}
     for i, item_obj in enumerate(items):
         item = _as_dict(item_obj, f"youtube.videos.items[{i}]")
         video_id = _as_str(item.get("id"))
         if video_id == "":
             continue
-        details_obj = item.get("contentDetails")
-        details = details_obj if isinstance(details_obj, dict) else {}
-        seconds = parse_iso8601_duration(_as_str(details.get("duration")))
-        if seconds is not None:
-            out[video_id] = seconds
+        content_obj = item.get("contentDetails")
+        content = content_obj if isinstance(content_obj, dict) else {}
+        snippet_obj = item.get("snippet")
+        snippet = snippet_obj if isinstance(snippet_obj, dict) else {}
+        out[video_id] = VideoDetails(
+            duration_seconds=parse_iso8601_duration(_as_str(content.get("duration"))),
+            description=_as_str(snippet.get("description")),
+        )
     return out
 
 
@@ -339,38 +357,62 @@ def _classify(
     title: str,
     channel_title: str,
     known_channels: tuple[str, ...],
+    description: str,
 ) -> _Classification | None:
-    """Return the classification, or None to EXCLUDE (surname not in title).
+    """Return the classification, or None to EXCLUDE.
 
-    HIGH requires the video to be published BY A KNOWN CHANNEL -- i.e. an
-    official podcast/media channel in ``youtube.known_channels``. That is the
-    first-party test: the person actually speaking on a publisher's channel,
-    rather than someone clipping or reacting to them.
+    CHANNEL IS EVALUATED FIRST (changed 2026-09-15). It used to be gated behind
+    a surname-in-title check, which meant an allowlisted publisher's own upload
+    was thrown away whenever the publisher did not put the guest's surname in
+    the title. That is a real shape, not a hypothetical: a16z published a
+    74-minute Gavin Baker interview on 2026-08-31 titled "Why AI Demand Is
+    Outrunning Compute Supply", and it never entered the YouTube dedupe bucket
+    at all. The a16z podcast FEED caught it -- but seven allowlisted channels
+    have no feed configured, so on those it would simply have vanished.
 
-    Framing keywords in the TITLE used to promote to HIGH on their own. They no
-    longer do, because a title is written by whoever uploaded it: a third-party
-    channel can call its 90-second cut "Gavin Baker interview" and inherit HIGH.
-    Every YouTube event that reached the inbox on 2026-09-03 was of exactly this
-    shape -- a Chinese-language recap of an a16z episode, and two ~1:40 clips
-    from channels named "Bumlife2Bomblife. ent" and "UninformedInvestors".
+    On an ALLOWLISTED channel the publisher is the first-party signal, so the
+    title need not name anyone. Two ways to qualify:
 
-    MEDIUM is therefore "the name is in the title but the publisher is not one we
-    recognise", which is the derivative bucket. It routes to no channels (see
-    ``alert_routing.youtube_medium``), so it is captured, committed, and silent.
+    1. The surname is in the title (the original rule, preserved exactly).
+    2. ``is_first_party_appearance`` finds the full name in the title, or near a
+       guest-framing stem in the DESCRIPTION -- "David George sits down with
+       Gavin Baker", "Gavin Baker, Ben Shapiro and Phil Deutch join the show".
+
+    Channel membership ALONE is deliberately not enough. Measured over the back
+    catalogue of all 17 allowlisted channels, admitting on membership alone
+    would newly alert on 61 videos; a 20-minute duration floor only cuts that to
+    25, because the noise on these channels is long-form too -- 95-minute
+    Bloomberg market shows, 100-minute All-In panels that merely mention the
+    name, Dwarkesh and ILTB episodes with entirely different guests. The
+    description gate cuts the same 61 to 4. Duration separates clips from shows;
+    it cannot separate "he is on it" from "they talked about him".
+
+    OFF the allowlist nothing changed: the surname must be in the title, and the
+    result is MEDIUM -- "the name is in the title but the publisher is not one we
+    recognise". Framing keywords in the title do NOT promote, because a title is
+    written by whoever uploaded it: a third-party channel can call its 90-second
+    cut "Gavin Baker interview" and inherit HIGH. Every YouTube event that
+    reached the inbox on 2026-09-03 was of exactly that shape. MEDIUM routes to
+    no channels (see ``alert_routing.youtube_medium``), so it is captured,
+    committed, and silent.
     """
     surname = surname_of(person)
-    title_lower = title.lower()
-    surname_in_title = surname != "" and surname in title_lower
-    if not surname_in_title:
-        return None
+    surname_in_title = surname != "" and surname in title.lower()
 
     channel_norm = channel_title.strip().lower()
     known_channel = channel_norm in {c.strip().lower() for c in known_channels}
 
     if known_channel:
-        return _Classification(
-            EventType.YOUTUBE_HIGH, Confidence.HIGH, Priority.HIGH
-        )
+        if surname_in_title or is_first_party_appearance(
+            title, description, (person,)
+        ):
+            return _Classification(
+                EventType.YOUTUBE_HIGH, Confidence.HIGH, Priority.HIGH
+            )
+        return None
+
+    if not surname_in_title:
+        return None
     return _Classification(
         EventType.YOUTUBE_MEDIUM, Confidence.MEDIUM, Priority.MEDIUM
     )
@@ -403,6 +445,7 @@ def _build_event(
     entity: EntityConfig,
     result: VideoResult,
     classification: _Classification,
+    duration_seconds: int | None,
 ) -> DetectedEvent:
     published = _parse_published(result.published_at)
     if published is None:
@@ -424,9 +467,8 @@ def _build_event(
         confidence=classification.confidence,
         payload={
             "person": entity.person,
-            # search.list omits contentDetails; filled in by the batched
-            # videos.list lookup in check_youtube. "" means UNKNOWN.
-            "duration": "",
+            # From the batched videos.list lookup; "" means UNKNOWN.
+            "duration": "" if duration_seconds is None else str(duration_seconds),
             "description": excerpt(result.description, FEED_DESCRIPTION_EXCERPT_MAX),
         },
     )
@@ -442,6 +484,14 @@ class _PlanItem:
     entity: EntityConfig
     query: str
     is_sweep: bool
+
+
+@dataclass(frozen=True)
+class _Candidate:
+    """A search hit that survived dedupe, awaiting enrichment + classification."""
+
+    entity: EntityConfig
+    result: VideoResult
 
 
 def _build_plan(config: AppConfig, run_sweep: bool) -> list[_PlanItem]:
@@ -493,6 +543,7 @@ def check_youtube(
     plan = _build_plan(config, run_sweep)
 
     handled: set[str] = set()
+    candidates: list[_Candidate] = []
     events: list[DetectedEvent] = []
     pending_bucket_seeds: list[str] = []
     new_markers: dict[str, str] = {}
@@ -531,19 +582,12 @@ def check_youtube(
                 query_seeds.append(video_id)
                 handled.add(video_id)
                 continue
-            # Normal query: dedupe vs bucket + manifest.
+            # Normal query: dedupe vs bucket + manifest. Classification is
+            # DEFERRED to a second pass -- it needs the full description, which
+            # only videos.list carries (search.list truncates to ~120 chars).
             if video_id in already_seen or video_id in manifest_ids:
                 continue
-            classification = _classify(
-                item.entity.person,
-                result.title,
-                result.channel_title,
-                config.youtube.known_channels,
-            )
-            if classification is None:
-                _log.debug("YouTube: EXCLUDE (surname absent) %r", result.title)
-                continue
-            events.append(_build_event(item.entity, result, classification))
+            candidates.append(_Candidate(item.entity, result))
             handled.add(video_id)
 
         if first_run:
@@ -552,22 +596,55 @@ def check_youtube(
                     pending_bucket_seeds.append(vid)
             new_markers[seed_key] = today_utc  # even if zero found
 
-    # Durations come from videos.list -- search.list omits contentDetails. ONE
-    # batched call per run covering every emitted event. An id that does not
-    # resolve leaves payload["duration"] == "", which downstream reads as
-    # UNKNOWN (and the digest keeps, rather than drops, an unknown).
-    if events:
+    # PASS 2. ONE batched videos.list for every surviving candidate, then
+    # classify. This call is what makes the full description available: an
+    # allowlisted channel's upload qualifies on guest framing in the
+    # description, and search.list's ~120-char truncation is not enough to find
+    # it reliably. An id that does not resolve degrades to the search snippet
+    # and an unknown duration -- never a dropped candidate.
+    details: dict[str, VideoDetails] = {}
+    if candidates:
         try:
-            resolved = client.durations(tuple(e.identifier for e in events))
+            details = client.details(
+                tuple(c.result.video_id for c in candidates)
+            )
         except Exception:  # noqa: BLE001 -- enrichment must never fail the run
             _log.exception(
-                "YouTube: duration lookup failed; durations stay unknown"
+                "YouTube: videos.list lookup failed; falling back to search "
+                "snippets and unknown durations for %d candidate(s)",
+                len(candidates),
             )
-            resolved = {}
-        for event in events:
-            seconds = resolved.get(event.identifier)
-            if seconds is not None:
-                event.payload["duration"] = str(seconds)
+
+    for candidate in candidates:
+        detail = details.get(candidate.result.video_id)
+        description = candidate.result.description
+        duration_seconds: int | None = None
+        if detail is not None:
+            duration_seconds = detail.duration_seconds
+            if detail.description != "":
+                description = detail.description
+        classification = _classify(
+            candidate.entity.person,
+            candidate.result.title,
+            candidate.result.channel_title,
+            config.youtube.known_channels,
+            description,
+        )
+        if classification is None:
+            _log.debug(
+                "YouTube: EXCLUDE %r (channel %r)",
+                candidate.result.title,
+                candidate.result.channel_title,
+            )
+            continue
+        events.append(
+            _build_event(
+                candidate.entity,
+                candidate.result,
+                classification,
+                duration_seconds,
+            )
+        )
 
     if run_sweep and sweep_ran_ok:
         new_markers[MARKER_YOUTUBE_SWEEP] = today_utc
