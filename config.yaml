@@ -58,10 +58,14 @@ youtube:
     - "Sohn Conference Foundation"
     - "Heller House"
     - "Generating Alpha Podcast"
-    - "Limitless Podcast"              # NOT "The Limitless Podcast" -- the real
-                                       # channel title has no article, and the
-                                       # membership test is exact-after-normalise,
-                                       # so the old entry never matched anything.
+  # REMOVED 2026-09-15: "The Limitless Podcast". Two separate problems, one
+  # decision. The entry never matched anything (the real channel title has no
+  # article and membership is exact-after-normalise), and once corrected to
+  # "Limitless Podcast" the sweep showed it is a channel that COVERS these two
+  # rather than one they appear on -- "We discuss Leopold Aschenbrenner's
+  # AI-focused portfolio". 8 of its 10 hits were excluded by the description
+  # gate, but 2 reached HIGH via the surname-in-title path, which bypasses that
+  # gate on an allowlisted channel. Every entry in this list must be a VENUE.
     - "TBPN"
     - "Aleph"
   # NOTE (2026-09-03): framing_keywords NO LONGER promotes a video to HIGH.

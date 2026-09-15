@@ -387,6 +387,14 @@ def _classify(
     description gate cuts the same 61 to 4. Duration separates clips from shows;
     it cannot separate "he is on it" from "they talked about him".
 
+    NOTE: on an allowlisted channel the surname-in-title path BYPASSES the
+    description gate. That is deliberate -- a venue naming him in the title is
+    the strongest signal there is -- but it means the allowlist assumes every
+    entry is a VENUE he appears on, never a commentator who covers him. A
+    commentator on the list would alert on every "<surname> says X" headline it
+    ever published. That assumption is what removed "Limitless Podcast" from
+    ``known_channels`` on 2026-09-15; it holds for the remaining 16.
+
     OFF the allowlist nothing changed: the surname must be in the title, and the
     result is MEDIUM -- "the name is in the title but the publisher is not one we
     recognise". Framing keywords in the title do NOT promote, because a title is

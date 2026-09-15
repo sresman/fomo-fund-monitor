@@ -1061,3 +1061,18 @@ covers these people, not one they appear on, so the allowlist entry itself is
 questionable.** Left in place as instructed; removing it is a one-line change.
 
 `mypy --strict` clean; **pytest 674 passed** (from 664).
+
+**SD-A64 (supersedes SD-A63) — `Limitless Podcast` removed from
+`known_channels` entirely.** Correcting the title made the dead entry live and
+exposed the real problem: it is a channel that COVERS these two, not a venue
+they appear on. The description gate excluded 8 of its 10 sweep hits, but 2
+reached HIGH via the surname-in-title path, which BYPASSES that gate on an
+allowlisted channel.
+
+That bypass is deliberate — a venue naming him in the title is the strongest
+signal there is — but it means **`known_channels` assumes every entry is a
+VENUE, never a commentator**. A commentator on the list alerts on every
+"<surname> says X" headline it ever publishes, and no description gate can stop
+it. The assumption holds for the remaining 16; it is now written into the
+`_classify` docstring and the config comment so the next addition is checked
+against it.
