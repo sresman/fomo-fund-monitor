@@ -30,8 +30,10 @@ from errors import StateError
 
 AppearanceKind = Literal["youtube", "rss_guids", "urls"]
 
-# Field order of a digest-queue row, and the exact set required on read.
-_DIGEST_FIELDS: tuple[str, ...] = (
+# Field order of a digest-queue row. REQUIRED fields must be present and str on
+# read or the row is skipped; OPTIONAL fields were added after rows were already
+# on disk, so a missing one defaults to "" instead of discarding the row.
+_DIGEST_FIELDS_REQUIRED: tuple[str, ...] = (
     "captured_at",
     "event_type",
     "entity_key",
@@ -41,6 +43,9 @@ _DIGEST_FIELDS: tuple[str, ...] = (
     "identifier",
     "published",
 )
+# Added 2026-09-15 for the digest duration floor.
+_DIGEST_FIELDS_OPTIONAL: tuple[str, ...] = ("duration_seconds",)
+_DIGEST_FIELDS: tuple[str, ...] = _DIGEST_FIELDS_REQUIRED + _DIGEST_FIELDS_OPTIONAL
 
 # Typed representations of the on-disk shapes.
 SeenFilings = dict[str, list[str]]
@@ -63,6 +68,9 @@ class DigestEntry:
     url: str
     identifier: str
     published: str
+    # Whole seconds as a decimal string; "" means UNKNOWN (not zero). Only
+    # youtube_medium rows carry one today.
+    duration_seconds: str = ""
 
 
 @dataclass
@@ -331,9 +339,12 @@ class StateStore:
         for item in raw:
             if not isinstance(item, dict):
                 continue
-            values = {f: item.get(f) for f in _DIGEST_FIELDS}
+            values = {f: item.get(f) for f in _DIGEST_FIELDS_REQUIRED}
             if any(not isinstance(v, str) for v in values.values()):
                 continue
+            for f in _DIGEST_FIELDS_OPTIONAL:
+                raw_opt = item.get(f)
+                values[f] = raw_opt if isinstance(raw_opt, str) else ""
             entries.append(DigestEntry(**{k: str(v) for k, v in values.items()}))
         return entries
 

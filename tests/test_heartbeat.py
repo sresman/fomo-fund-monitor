@@ -299,7 +299,7 @@ def _entry(
 
 def test_empty_digest_says_so_explicitly() -> None:
     _, body = render(_report(digest=()))
-    assert "Captured silently since the last heartbeat: nothing." in body
+    assert "Possible missed appearances since the last heartbeat: none." in body
 
 
 def test_digest_groups_by_subject_then_source() -> None:

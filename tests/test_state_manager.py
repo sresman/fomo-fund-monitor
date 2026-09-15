@@ -380,3 +380,91 @@ def test_digest_queue_wrong_container_raises(
     (state_dir / constants.STATE_FILE_DIGEST_QUEUE).write_text("{}", encoding="utf-8")
     with pytest.raises(StateError):
         store.load_digest_queue()
+
+
+# --------------------------------------------------------------------------- #
+# digest queue: duration_seconds (added 2026-09-15)
+# --------------------------------------------------------------------------- #
+
+
+def test_digest_duration_survives_a_roundtrip(store: StateStore) -> None:
+    entry = DigestEntry(
+        captured_at="2026-09-15T00:00:00+00:00",
+        event_type="youtube_medium",
+        entity_key="atreides",
+        source="Some Channel",
+        title="t",
+        url="https://www.youtube.com/watch?v=v1",
+        identifier="v1",
+        published="2026-09-14",
+        duration_seconds="4466",
+    )
+    store.append_digest_entries([entry])
+    assert store.load_digest_queue()[0].duration_seconds == "4466"
+
+
+def test_digest_duration_defaults_to_unknown(store: StateStore) -> None:
+    store.append_digest_entries([_dentry("a")])
+    assert store.load_digest_queue()[0].duration_seconds == ""
+
+
+def test_pre_existing_rows_without_duration_are_kept(
+    store: StateStore, state_dir: Path
+) -> None:
+    """A row written before duration_seconds existed must LOAD, not be skipped.
+
+    Treating the new field as required would have silently discarded the whole
+    queue on the first run after deploy -- exactly the kind of quiet data loss
+    the digest is supposed to protect against.
+    """
+    state_dir.mkdir(parents=True, exist_ok=True)
+    path = state_dir / constants.STATE_FILE_DIGEST_QUEUE
+    path.write_text(
+        json.dumps(
+            [
+                {
+                    "captured_at": "2026-09-04T06:58:37+00:00",
+                    "event_type": "youtube_medium",
+                    "entity_key": "atreides",
+                    "source": "白线 WhiteLine",
+                    "title": "old row, written before the field existed",
+                    "url": "https://www.youtube.com/watch?v=do60wBGv-n4",
+                    "identifier": "do60wBGv-n4",
+                    "published": "2026-09-04T10:30:31+00:00",
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+    loaded = store.load_digest_queue()
+    assert [e.identifier for e in loaded] == ["do60wBGv-n4"]
+    assert loaded[0].duration_seconds == ""
+
+
+def test_non_string_duration_degrades_to_unknown(
+    store: StateStore, state_dir: Path
+) -> None:
+    """A numeric duration (wrong type) must not take the whole row down."""
+    state_dir.mkdir(parents=True, exist_ok=True)
+    path = state_dir / constants.STATE_FILE_DIGEST_QUEUE
+    path.write_text(
+        json.dumps(
+            [
+                {
+                    "captured_at": "2026-09-15T00:00:00+00:00",
+                    "event_type": "youtube_medium",
+                    "entity_key": "atreides",
+                    "source": "Some Channel",
+                    "title": "t",
+                    "url": "https://www.youtube.com/watch?v=v1",
+                    "identifier": "v1",
+                    "published": "2026-09-14",
+                    "duration_seconds": 4466,
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+    loaded = store.load_digest_queue()
+    assert [e.identifier for e in loaded] == ["v1"]
+    assert loaded[0].duration_seconds == ""

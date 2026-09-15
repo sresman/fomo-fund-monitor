@@ -77,6 +77,7 @@ def make_event(
     event_type: EventType = EventType.FILING_13F,
     entity_key: str = "atreides",
     identifier: str = "id-1",
+    payload: dict[str, str] | None = None,
 ) -> DetectedEvent:
     return DetectedEvent(
         event_type=event_type,
@@ -88,7 +89,7 @@ def make_event(
         published=NOW,
         priority=Priority.HIGH,
         confidence=Confidence.HIGH,
-        payload={},
+        payload=payload if payload is not None else {},
     )
 
 
@@ -1141,16 +1142,68 @@ def test_main_module_runnable_dry_run() -> None:
 
 
 def test_silent_capture_is_queued_for_the_digest() -> None:
-    ev = make_event(identifier="e1", event_type=EventType.GOOGLE_NEWS)
+    """A long-form MEDIUM YouTube hit is the digest's whole reason to exist: a
+    possible first-party appearance on a channel we do not allowlist."""
+    ev = make_event(
+        identifier="e1",
+        event_type=EventType.YOUTUBE_MEDIUM,
+        payload={"duration": "4466"},  # 74m -- the a16z-episode shape
+    )
     store = FakeStore()
     dispatcher = FakeDispatcher(sent_by_id={"e1": ()}, routed_by_id={"e1": ()})
-    spec = _spec(MonitorName.GOOGLE_NEWS, [ev], commit_log=[])
+    spec = _spec(MonitorName.YOUTUBE, [ev], commit_log=[])
     assert _run(store=store, dispatcher=dispatcher, monitors=[spec]) == 0
     assert [d.identifier for d in store.digest] == ["e1"]
     assert store.digest[0].title == ev.title
     assert store.digest[0].url == ev.url
     assert store.digest[0].entity_key == "atreides"
-    assert store.digest[0].event_type == "google_news"
+    assert store.digest[0].event_type == "youtube_medium"
+    assert store.digest[0].duration_seconds == "4466"
+
+
+def test_google_news_is_captured_but_never_digested() -> None:
+    """Dropped from the digest (2026-09-15) as ~80% of its volume and
+    re-queryable on demand. It must STILL be committed to the dedupe bucket, so
+    re-enabling the type never floods a backlog."""
+    ev = make_event(identifier="e1", event_type=EventType.GOOGLE_NEWS)
+    store = FakeStore()
+    committed: list[tuple[str, str]] = []
+    dispatcher = FakeDispatcher(sent_by_id={"e1": ()}, routed_by_id={"e1": ()})
+    spec = _spec(MonitorName.GOOGLE_NEWS, [ev], commit_log=committed)
+    assert _run(store=store, dispatcher=dispatcher, monitors=[spec]) == 0
+    assert store.digest == []
+    assert committed == [("google_news", "e1")]
+
+
+def test_short_youtube_medium_is_captured_but_never_digested() -> None:
+    """A clip/recap is below the floor. Committed, not rendered."""
+    ev = make_event(
+        identifier="e1",
+        event_type=EventType.YOUTUBE_MEDIUM,
+        payload={"duration": "96"},  # 1m36s
+    )
+    store = FakeStore()
+    committed: list[tuple[str, str]] = []
+    dispatcher = FakeDispatcher(sent_by_id={"e1": ()}, routed_by_id={"e1": ()})
+    spec = _spec(MonitorName.YOUTUBE, [ev], commit_log=committed)
+    assert _run(store=store, dispatcher=dispatcher, monitors=[spec]) == 0
+    assert store.digest == []
+    assert committed == [("youtube", "e1")]
+
+
+def test_youtube_medium_with_unknown_duration_is_digested() -> None:
+    """Missing metadata must never silently discard the recovery case."""
+    ev = make_event(
+        identifier="e1",
+        event_type=EventType.YOUTUBE_MEDIUM,
+        payload={"duration": ""},
+    )
+    store = FakeStore()
+    dispatcher = FakeDispatcher(sent_by_id={"e1": ()}, routed_by_id={"e1": ()})
+    spec = _spec(MonitorName.YOUTUBE, [ev], commit_log=[])
+    assert _run(store=store, dispatcher=dispatcher, monitors=[spec]) == 0
+    assert [d.identifier for d in store.digest] == ["e1"]
+    assert store.digest[0].duration_seconds == ""
 
 
 def test_alerted_events_are_not_queued() -> None:

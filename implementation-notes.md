@@ -848,3 +848,128 @@ window still qualifies (`test_veto_only_kills_the_stem_it_follows`).
 
 **Live effect:** 30 -> 29 first-party appearances; the single delta is the
 intended one.
+
+---
+
+## 2026-09-15 — Commit 23: digest cut to the recovery case (duration floor)
+
+**Problem (operator).** The 2026-09-14 heartbeat carried 58 items, "mostly
+Leopold-collapse commentary in a dozen languages". Unreadable, therefore unread,
+therefore the recovery path does not exist in practice.
+
+### Trace first: the 富途牛牛 item (operator's second question)
+
+Google News redirect ids are now opaque (`AU_yqL…` protobuf), so the destination
+was resolved through the `batchexecute`/`garturlreq` RPC rather than an HTTP
+redirect: `news.futunn.com/en/post/79135042`. The page itself is client-rendered
+behind a WAF (10 KB shell, `请启用 JavaScript`) — unreadable by fetch, same class
+of failure as `situational-awareness.com`. The underlying interview was therefore
+identified from the derivative uploads instead, four of which name it outright:
+
+- `Make Wavs Media` 2026-09-10: "Clip from the a16z Podcast… Full episode:
+  youtube.com/watch?v=**FGC4ofTcg2k**"
+- `AI快递` 2026-09-08: 原视频链接 = the same id
+- `Markluce AI` 2026-09-01: "a16z × Gavin Baker 完整重點整理（原片 1 小時 14 分,
+  2026 年 8 月 31 日上線）"
+- `股市漁夫` 2026-09-06: Cantonese dub of Baker × David George
+
+**Answer: a16z Podcast, "Gavin Baker: Why AI Demand Is Outrunning Compute
+Supply", David George, published 2026-08-31, 74m06s.** Not a coverage gap — the
+venue is configured TWICE (`a16z` in `youtube.known_channels`; the a16z Podcast
+feed in `podcast_rss.feeds`) — and it DID alert: guid
+`38ff9198-903d-4a96-8b02-b577f87670c0` entered `rss_guids` at
+2026-09-03T22:51:38Z, the first working run after the alerting fix. Confirmed no
+Baker first-party appearance exists on any allowlisted channel 2026-09-05..15
+(checked a16z, Invest Like The Best, Bg2, TBPN uploads), so nothing newer is
+being missed.
+
+**FLAG-YT-TITLE (found in passing, NOT fixed — out of scope).** The YouTube copy
+of that same episode, `FGC4ofTcg2k` on channel `a16z`, is **absent from the
+`youtube` dedupe bucket**. `_classify` requires `surname_in_title` before it ever
+checks `known_channels`, and a16z titled the upload "Why AI Demand Is Outrunning
+Compute Supply" — no "Baker". So an allowlisted publisher's own 74-minute
+interview is EXCLUDEd outright. The RSS feed (whose title DOES carry his name)
+was the only reason the system saw it at all. A venue that is YouTube-only — Bg2,
+TBPN, a conference channel — has no such backstop. Note this is upstream of the
+digest: an EXCLUDEd video never reaches the queue, so the duration floor below
+cannot recover it. Operator decision pending.
+
+### The cut
+
+**SD-A57 — filter at ENQUEUE, not at render.** Keeps the on-disk queue small
+(51 KB and 2000-row-capped before this) and means a missed heartbeat cannot
+accumulate rows nobody will read. The event is still dispatched and still
+committed to the dedupe bucket; only the digest ROW is skipped — the same
+"silence over disabling" rule the alert policy already follows, so re-enabling a
+type is a one-line change with no backlog flood.
+
+**SD-A58 — google_news dropped from the digest entirely.** 134 of the 168-item
+captured corpus (~80%). Re-queryable on demand; operator will not read it.
+
+**SD-A59 — duration floor at 20 minutes, one signal only.** Operator chose
+duration over title framing, and declined framing as an additional promoter.
+Measured against the same corpus, framing would have kept exactly ONE of 34
+youtube_medium items — and that one is a false positive (`Marktgeflüster`, a
+German market podcast DISCUSSING the subject) — while dropping a genuine
+"<name> on the AI bubble" upload that carries no framing verb. Duration is a
+property of the artefact; a title is a claim by whoever uploaded it, and this
+system has already been burned once by trusting uploader-written titles
+(`test_framing_in_title_no_longer_promotes_an_unknown_channel`).
+
+Sensitivity over the 34 captured youtube_medium items (real durations, fetched
+from videos.list):
+
+| floor | youtube_medium kept | digest total (from 168) |
+|---|---|---|
+| 15m | 10 | 10 |
+| **20m** | **9** | **9** |
+| 30m | 4 | 4 |
+
+Flat between 15 and 20 (one item, `认知边界` at exactly 16m00, sits in the band);
+steep at 30, which would cut four genuine long-form items. 20m clears the
+"under 10" target with the most headroom before the cliff.
+
+**HONEST LIMIT.** None of the 9 survivors is a genuine first-party appearance —
+they are long-form commentary (retrospectives, a dubbed recap of the a16z
+episode). The corpus contained **no** unallowlisted first-party appearance, so
+this filter is *unfalsified* by the data, not *validated* by it. It demonstrably
+removes noise; it has not yet been shown to preserve a real recovery case,
+because no such case exists in the sample.
+
+**SD-A60 — unknown duration is KEPT.** Operator's explicit instruction, and the
+right default: missing metadata must never silently discard the case the digest
+exists for. Enforced at three layers — `parse_iso8601_duration` returns `None`
+(never 0) for unparseable input, a failing `videos.list` batch is logged and
+skipped rather than raised, and `digest_policy.should_queue` returns True on
+`None`. Note the corpus had **zero** unresolved durations, so this path is
+covered by unit tests only.
+
+**Bug caught by its own test.** The first `_ISO_DURATION_RE` made every component
+optional, so `"P"` and `"PT"` matched and returned **0 seconds** — below every
+floor, i.e. an unknown silently discarded, the exact failure SD-A60 forbids.
+Now an all-`None` group set returns `None`
+(`test_parse_iso8601_duration_rejects_to_none_not_zero`).
+
+### Mechanism
+
+- `constants`: `DIGEST_EVENT_TYPES` (frozenset, currently `{"youtube_medium"}`),
+  `DIGEST_MIN_DURATION_SECONDS = 20*60`, `YOUTUBE_VIDEOS_PART`,
+  `YOUTUBE_VIDEOS_BATCH_MAX`.
+- `digest_policy.py` (NEW): `duration_of` + `should_queue`. The whole cut in one
+  file, importing only `constants` + `state_manager`.
+- `monitors/youtube.py`: `YouTubeClient` Protocol gains `durations()`;
+  `YouTubeApiClient.durations` batches at the API's 50-id limit;
+  `parse_iso8601_duration`; ONE batched `videos.list` per run fills the
+  `payload["duration"]` slot that had been a `""` placeholder marked DEFERRED
+  since Prompt 4. Cost: 1 quota unit per run against a search's 100.
+- `state_manager.DigestEntry` gains `duration_seconds: str` ("" = UNKNOWN).
+  `_DIGEST_FIELDS` split REQUIRED/OPTIONAL so rows written before the field
+  existed still LOAD — treating it as required would have discarded the entire
+  live queue on first deploy.
+- `main._process_monitor`: filters through `should_queue`, logs the filtered
+  count once per monitor.
+- `heartbeat._render_digest`: header retitled POSSIBLE MISSED APPEARANCES and
+  now states what is captured-but-not-listed.
+
+**Replayed over the real 168-item corpus: 168 → 9 rendered.** `mypy --strict`
+clean; **pytest 664 passed** (from 616).

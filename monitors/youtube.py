@@ -32,6 +32,7 @@ resolved from ``os.environ`` INSIDE the concrete client, lazily and once.
 
 import logging
 import os
+import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Callable, Protocol
@@ -46,6 +47,8 @@ from constants import (
     YOUTUBE_SEARCH_ORDER,
     YOUTUBE_SEARCH_PART,
     YOUTUBE_SEARCH_TYPE,
+    YOUTUBE_VIDEOS_BATCH_MAX,
+    YOUTUBE_VIDEOS_PART,
     YOUTUBE_WATCH_URL,
 )
 from errors import MonitorError
@@ -90,8 +93,14 @@ class SearchResourceLike(Protocol):
     def list(self, **kwargs: object) -> RequestLike: ...
 
 
+class VideosResourceLike(Protocol):
+    def list(self, **kwargs: object) -> RequestLike: ...
+
+
 class YouTubeServiceLike(Protocol):
     def search(self) -> SearchResourceLike: ...
+
+    def videos(self) -> VideosResourceLike: ...
 
 
 # --------------------------------------------------------------------------- #
@@ -129,6 +138,14 @@ def _as_str(v: object) -> str:
 
 class YouTubeClient(Protocol):
     def search(self, query: str, max_results: int) -> tuple[VideoResult, ...]: ...
+
+    def durations(self, video_ids: tuple[str, ...]) -> dict[str, int]:
+        """Map video id -> duration in seconds, for the ids that resolved.
+
+        An id absent from the result means "unknown", NOT "zero-length": callers
+        must treat absence as missing metadata, never as a short video.
+        """
+        ...
 
 
 class YouTubeApiClient:
@@ -198,6 +215,81 @@ class YouTubeApiClient:
         except Exception as exc:  # noqa: BLE001 -- wrap Google API faults
             raise MonitorError(f"YouTube search failed for {query!r}: {exc}") from exc
         return _parse_search_response(response)
+
+    def durations(self, video_ids: tuple[str, ...]) -> dict[str, int]:
+        """Resolve durations via videos.list, batched at the API's 50-id limit.
+
+        A failing BATCH is logged and skipped rather than raised: durations are
+        an enrichment, and an unresolved id is handled downstream as "unknown"
+        (kept), so a videos.list outage degrades the digest's precision but
+        never loses an event.
+        """
+        wanted = tuple(dict.fromkeys(v for v in video_ids if v != ""))
+        if not wanted:
+            return {}
+        service = self._get_service()
+        resolved: dict[str, int] = {}
+        for start in range(0, len(wanted), YOUTUBE_VIDEOS_BATCH_MAX):
+            batch = wanted[start : start + YOUTUBE_VIDEOS_BATCH_MAX]
+            try:
+                request = service.videos().list(
+                    part=YOUTUBE_VIDEOS_PART,
+                    id=",".join(batch),
+                )
+                resolved.update(_parse_videos_response(request.execute()))
+            except Exception:  # noqa: BLE001 -- enrichment; unknown == kept
+                _log.exception(
+                    "YouTube: videos.list failed for %d id(s); their durations "
+                    "stay unknown",
+                    len(batch),
+                )
+        return resolved
+
+
+# ISO-8601 durations as YouTube emits them: "PT1H14M26S", "PT45S", "P1DT2H".
+_ISO_DURATION_RE = re.compile(
+    r"^P(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?)?$"
+)
+
+
+def parse_iso8601_duration(value: str) -> int | None:
+    """Seconds, or None when the string is absent/unparseable.
+
+    None means UNKNOWN. It is never collapsed to 0 -- a caller applying a
+    minimum-length floor must be able to tell "shorter than the floor" from
+    "we could not find out".
+    """
+    text = value.strip()
+    if text == "":
+        return None
+    match = _ISO_DURATION_RE.fullmatch(text)
+    if match is None:
+        return None
+    groups = match.groups()
+    if all(g is None for g in groups):
+        # "P" / "PT": every component optional in the grammar, so these match
+        # while carrying no duration at all. Degenerate, and must read as
+        # UNKNOWN -- returning 0 here would put them below every floor.
+        return None
+    days, hours, minutes, seconds = (int(g) if g else 0 for g in groups)
+    return ((days * 24 + hours) * 60 + minutes) * 60 + seconds
+
+
+def _parse_videos_response(response: object) -> dict[str, int]:
+    root = _as_dict(response, "youtube.videos")
+    items = _as_list(root.get("items", []), "youtube.videos.items")
+    out: dict[str, int] = {}
+    for i, item_obj in enumerate(items):
+        item = _as_dict(item_obj, f"youtube.videos.items[{i}]")
+        video_id = _as_str(item.get("id"))
+        if video_id == "":
+            continue
+        details_obj = item.get("contentDetails")
+        details = details_obj if isinstance(details_obj, dict) else {}
+        seconds = parse_iso8601_duration(_as_str(details.get("duration")))
+        if seconds is not None:
+            out[video_id] = seconds
+    return out
 
 
 def _parse_search_response(response: object) -> tuple[VideoResult, ...]:
@@ -332,7 +424,9 @@ def _build_event(
         confidence=classification.confidence,
         payload={
             "person": entity.person,
-            "duration": "",  # DEFERRED: search.list omits duration
+            # search.list omits contentDetails; filled in by the batched
+            # videos.list lookup in check_youtube. "" means UNKNOWN.
+            "duration": "",
             "description": excerpt(result.description, FEED_DESCRIPTION_EXCERPT_MAX),
         },
     )
@@ -457,6 +551,23 @@ def check_youtube(
                 if vid not in pending_bucket_seeds:
                     pending_bucket_seeds.append(vid)
             new_markers[seed_key] = today_utc  # even if zero found
+
+    # Durations come from videos.list -- search.list omits contentDetails. ONE
+    # batched call per run covering every emitted event. An id that does not
+    # resolve leaves payload["duration"] == "", which downstream reads as
+    # UNKNOWN (and the digest keeps, rather than drops, an unknown).
+    if events:
+        try:
+            resolved = client.durations(tuple(e.identifier for e in events))
+        except Exception:  # noqa: BLE001 -- enrichment must never fail the run
+            _log.exception(
+                "YouTube: duration lookup failed; durations stay unknown"
+            )
+            resolved = {}
+        for event in events:
+            seconds = resolved.get(event.identifier)
+            if seconds is not None:
+                event.payload["duration"] = str(seconds)
 
     if run_sweep and sweep_ran_ok:
         new_markers[MARKER_YOUTUBE_SWEEP] = today_utc

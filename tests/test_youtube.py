@@ -21,6 +21,7 @@ from monitors.youtube import (
     VideoResult,
     YouTubeApiClient,
     check_youtube,
+    parse_iso8601_duration,
     _parse_search_response,
 )
 from monitors._common import youtube_seed_key
@@ -38,20 +39,37 @@ TODAY_ISO = "2026-07-22"
 
 class FakeYouTubeClient:
     """Returns canned results per query; unknown query -> (); a designated
-    query -> raises MonitorError (isolation test)."""
+    query -> raises MonitorError (isolation test).
+
+    ``durations`` defaults to resolving NOTHING, which is the honest default for
+    most tests here: an unresolved id leaves payload["duration"] == "" exactly
+    as it did before videos.list existed. Pass ``durations_by_id`` to exercise
+    the enrichment, or ``raise_on_durations`` to exercise its failure path.
+    """
 
     def __init__(
         self,
         by_query: dict[str, tuple[VideoResult, ...]],
         raise_for: frozenset[str] = frozenset(),
+        durations_by_id: dict[str, int] | None = None,
+        raise_on_durations: bool = False,
     ) -> None:
         self._by_query = by_query
         self._raise_for = raise_for
+        self._durations = durations_by_id or {}
+        self._raise_on_durations = raise_on_durations
+        self.duration_calls: list[tuple[str, ...]] = []
 
     def search(self, query: str, max_results: int) -> tuple[VideoResult, ...]:
         if query in self._raise_for:
             raise MonitorError(f"boom for {query}")
         return self._by_query.get(query, ())
+
+    def durations(self, video_ids: tuple[str, ...]) -> dict[str, int]:
+        self.duration_calls.append(video_ids)
+        if self._raise_on_durations:
+            raise MonitorError("boom for durations")
+        return {v: self._durations[v] for v in video_ids if v in self._durations}
 
 
 def vid(
@@ -543,6 +561,9 @@ def test_sweep_runs_first_then_once_per_day(
             called.append(query)
             return ()
 
+        def durations(self, video_ids: tuple[str, ...]) -> dict[str, int]:
+            return {}
+
     # First run -> broad + sweep both called.
     check_youtube(feeds_config, store, RecordingClient(), NOW)
     assert Q_BAKER_SWEEP1 in called
@@ -777,3 +798,99 @@ def test_build_alert_youtube_medium(
     ev = check_youtube(feeds_config, store, client, NOW)[0]
     alert = build_alert(ev, feeds_config)
     assert set(alert.channels) == {AlertChannel.EMAIL}
+
+
+# --------------------------------------------------------------------------- #
+# Duration enrichment (videos.list; search.list omits contentDetails)
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.parametrize(
+    "text,expected",
+    [
+        ("PT1H14M26S", 4466),  # the real a16z episode
+        ("PT45S", 45),
+        ("PT7M35S", 455),
+        ("PT16M", 960),
+        ("P1DT2H", 93600),
+        ("PT0S", 0),
+        ("P2D", 172800),
+    ],
+)
+def test_parse_iso8601_duration_accepts_real_shapes(text: str, expected: int) -> None:
+    assert parse_iso8601_duration(text) == expected
+
+
+@pytest.mark.parametrize("text", ["", "   ", "garbage", "1H2M", "PT", "PT1.5M", "P"])
+def test_parse_iso8601_duration_rejects_to_none_not_zero(text: str) -> None:
+    """None is UNKNOWN. Collapsing it to 0 would make every unparseable video
+    look shorter than any floor, which is the silent-discard failure the digest
+    exists to prevent."""
+    assert parse_iso8601_duration(text) is None
+
+
+def test_durations_fill_the_event_payload(
+    feeds_config: AppConfig, store: StateStore
+) -> None:
+    _seed_all_markers(store, feeds_config)
+    client = FakeYouTubeClient(
+        {Q_BAKER_BROAD: (vid("aaaaaaaaaa1", "Gavin Baker on the AI bubble"),)},
+        durations_by_id={"aaaaaaaaaa1": 4466},
+    )
+    events = check_youtube(feeds_config, store, client, NOW)
+    assert [e.payload["duration"] for e in events] == ["4466"]
+
+
+def test_duration_lookup_is_one_batched_call_for_all_events(
+    feeds_config: AppConfig, store: StateStore
+) -> None:
+    """Quota discipline: videos.list is 1 unit, but one call per video would
+    still be one HTTP round trip per hit."""
+    _seed_all_markers(store, feeds_config)
+    client = FakeYouTubeClient(
+        {
+            Q_BAKER_BROAD: (
+                vid("aaaaaaaaaa1", "Gavin Baker interview"),
+                vid("aaaaaaaaaa2", "Gavin Baker again"),
+            )
+        },
+        durations_by_id={"aaaaaaaaaa1": 4466, "aaaaaaaaaa2": 96},
+    )
+    check_youtube(feeds_config, store, client, NOW)
+    assert client.duration_calls == [("aaaaaaaaaa1", "aaaaaaaaaa2")]
+
+
+def test_unresolved_duration_stays_empty_not_zero(
+    feeds_config: AppConfig, store: StateStore
+) -> None:
+    _seed_all_markers(store, feeds_config)
+    client = FakeYouTubeClient(
+        {Q_BAKER_BROAD: (vid("aaaaaaaaaa1", "Gavin Baker on the AI bubble"),)},
+        durations_by_id={},  # resolves nothing
+    )
+    events = check_youtube(feeds_config, store, client, NOW)
+    assert [e.payload["duration"] for e in events] == [""]
+
+
+def test_duration_lookup_failure_never_fails_the_run(
+    feeds_config: AppConfig, store: StateStore
+) -> None:
+    """Enrichment is best-effort: a videos.list outage must degrade the digest's
+    precision, never drop the event."""
+    _seed_all_markers(store, feeds_config)
+    client = FakeYouTubeClient(
+        {Q_BAKER_BROAD: (vid("aaaaaaaaaa1", "Gavin Baker on the AI bubble"),)},
+        raise_on_durations=True,
+    )
+    events = check_youtube(feeds_config, store, client, NOW)
+    assert [e.identifier for e in events] == ["aaaaaaaaaa1"]
+    assert events[0].payload["duration"] == ""
+
+
+def test_no_events_means_no_duration_call(
+    feeds_config: AppConfig, store: StateStore
+) -> None:
+    _seed_all_markers(store, feeds_config)
+    client = FakeYouTubeClient({})
+    assert check_youtube(feeds_config, store, client, NOW) == []
+    assert client.duration_calls == []

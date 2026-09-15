@@ -468,13 +468,16 @@ def _render_digest(entries: Sequence[DigestEntry]) -> list[str]:
     captures 150 news items cannot turn the digest into an unreadable wall.
 
     No action is expected from any of this -- it is the recovery path for a
-    first-party appearance on a venue that is not allowlisted, and a way to see
-    what google_news is holding without it arriving live.
+    first-party appearance on a venue that is not allowlisted.
+
+    What reaches this list at all is decided at ENQUEUE by ``digest_policy``,
+    not here: google_news is captured but never rendered, and a youtube_medium
+    row must clear the duration floor (or have no known duration).
     """
     if not entries:
         return [
             "",
-            "Captured silently since the last heartbeat: nothing.",
+            "Possible missed appearances since the last heartbeat: none.",
         ]
 
     grouped: dict[tuple[str, str], list[DigestEntry]] = {}
@@ -485,9 +488,11 @@ def _render_digest(entries: Sequence[DigestEntry]) -> list[str]:
     lines = [
         "",
         "-" * 68,
-        f"CAPTURED SILENTLY ({len(entries)} item(s)) — no action expected",
-        "Routed to no channel by policy: MEDIUM YouTube, Google News, site "
-        "diffs, other filings.",
+        f"POSSIBLE MISSED APPEARANCES ({len(entries)} item(s)) — no action "
+        "expected",
+        "Long-form MEDIUM YouTube: the name is in the title but the channel is "
+        "not allowlisted, so it never alerted. Google News, site diffs, other "
+        "filings and short clips are captured silently and NOT listed here.",
         "-" * 68,
     ]
     for (subject, source) in sorted(grouped):

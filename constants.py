@@ -85,6 +85,13 @@ YOUTUBE_SEARCH_PART: str = "snippet"
 YOUTUBE_SEARCH_TYPE: str = "video"
 YOUTUBE_SEARCH_ORDER: str = "date"  # newest first
 YOUTUBE_WATCH_URL: str = "https://www.youtube.com/watch?v={video_id}"
+# videos.list, used ONLY to resolve durations for videos already discovered by
+# search.list (which omits contentDetails). Costs 1 quota unit per call against
+# YOUTUBE_SEARCH_COST_UNITS=100 for a search, so one batched call per run is
+# noise against the daily quota.
+YOUTUBE_VIDEOS_PART: str = "contentDetails"
+# videos.list accepts at most 50 ids per call.
+YOUTUBE_VIDEOS_BATCH_MAX: int = 50
 
 # Manifest YouTube-URL host allowlist (lowercased; urlparse().netloc must be in
 # this set for an id to be extracted -- rejects notyoutube.com and embedded-path
@@ -231,6 +238,30 @@ DIGEST_QUEUE_MAX_ENTRIES: int = 2000
 DIGEST_MAX_PER_GROUP: int = 25
 # Title truncation inside the digest, so one long headline cannot dominate.
 DIGEST_TITLE_MAX_CHARS: int = 110
+
+# --- What actually reaches the digest (2026-09-15) ---
+#
+# The digest exists for ONE recovery case: a first-party appearance on a venue
+# that is not allowlisted. Everything else silently captured is noise inside it.
+#
+# google_news is deliberately ABSENT. It was ~80% of digest volume (134 of a
+# 168-item corpus) and is re-queryable on demand, so it is captured to the
+# dedupe bucket and never rendered. Re-adding the member here is the only change
+# needed to bring it back.
+DIGEST_EVENT_TYPES: frozenset[str] = frozenset({"youtube_medium"})
+
+# Duration floor for a youtube_medium row to reach the digest.
+#
+# Duration is a property of the artefact; a title is a claim by whoever uploaded
+# it. Framing keywords were measured against the same corpus and failed in both
+# directions -- they admitted a German market podcast merely DISCUSSING the
+# subject, and would have dropped a genuine "<name> on the AI bubble" upload.
+# Against the 34 youtube_medium items captured to 2026-09-15: a 15m floor keeps
+# 10, 20m keeps 9, 30m keeps 4.
+#
+# A video whose duration could not be resolved is KEPT. Missing metadata must
+# not silently discard the recovery case this whole path exists for.
+DIGEST_MIN_DURATION_SECONDS: int = 20 * 60
 
 # --- repository_dispatch bridge (Prompt 6) ---
 

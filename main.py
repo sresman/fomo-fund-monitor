@@ -71,6 +71,7 @@ load_dotenv()
 
 import constants
 from config import AppConfig, load_config
+from digest_policy import should_queue
 from dispatch_bridge import DispatchBridge, build_bridge_payload
 from errors import (
     AlertDeliveryError,
@@ -421,7 +422,11 @@ def describe_alert_failure(result: DispatchResultLike) -> str:
 
 
 def _digest_entry(event: DetectedEvent, now: datetime) -> DigestEntry:
-    """Project a silently-captured event into a queued digest row."""
+    """Project a silently-captured event into a queued digest row.
+
+    ``duration_seconds`` carries whatever the monitor resolved; "" is UNKNOWN,
+    which ``digest_policy`` keeps rather than drops.
+    """
     return DigestEntry(
         captured_at=now.isoformat(),
         event_type=event.event_type.value,
@@ -431,6 +436,7 @@ def _digest_entry(event: DetectedEvent, now: datetime) -> DigestEntry:
         url=event.url,
         identifier=event.identifier,
         published=event.published.isoformat() if event.published else "",
+        duration_seconds=event.payload.get("duration", ""),
     )
 
 
@@ -505,6 +511,7 @@ def _process_monitor(
         # weekly digest, so an appearance on a venue we do not allowlist is
         # visible within a week even though it never alerts live.
         digest: list[DigestEntry] = []
+        digest_filtered = 0
         # dispatch_events returns one result per event, same order/length.
         for event, result in zip(events, results):
             for channel in result.channels_skipped:
@@ -540,7 +547,14 @@ def _process_monitor(
                     )
                     continue
                 if not result.routed:
-                    digest.append(_digest_entry(event, now))
+                    # Captured silently. It is committed to the dedupe bucket
+                    # either way; digest_policy decides only whether it is also
+                    # RENDERED in the weekly mail.
+                    entry = _digest_entry(event, now)
+                    if should_queue(entry):
+                        digest.append(entry)
+                    else:
+                        digest_filtered += 1
                 _fire_bridge_for_event(bridge, gate, config, name, event, now)
             else:
                 # Retryable event whose alert failed: leave un-committed so it
@@ -550,6 +564,14 @@ def _process_monitor(
                     name,
                     event.identifier,
                 )
+
+        if digest_filtered > 0:
+            logger.info(
+                "monitor %s: %d silent-capture item(s) captured but not "
+                "queued for the digest (digest_policy)",
+                name,
+                digest_filtered,
+            )
 
         if digest:
             # One write per monitor, not per event.
