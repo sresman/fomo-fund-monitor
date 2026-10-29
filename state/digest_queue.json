@@ -1,1 +1,13 @@
-[]
+[
+  {
+    "captured_at": "2026-10-29T10:18:37.902805+00:00",
+    "duration_seconds": "2505",
+    "entity_key": "atreides",
+    "event_type": "youtube_medium",
+    "identifier": "AQ6nYdwSr6c",
+    "published": "2026-10-29T04:02:01+00:00",
+    "source": "\u4e0a\u4e0b\u73ed\u5f8c\u7684\u4e16\u754c",
+    "title": "Anthropic S-1 \u53ea\u71d2 100 \u5104\uff1fGavin Baker \u8ac7 GPU \u50f9\u683c\u8207 SpaceX\uff5c\u5b8c\u6574\u4e2d\u5b57",
+    "url": "https://www.youtube.com/watch?v=AQ6nYdwSr6c"
+  }
+]
