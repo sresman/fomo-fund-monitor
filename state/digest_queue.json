@@ -1,1 +1,13 @@
-[]
+[
+  {
+    "captured_at": "2026-11-13T12:26:24.255630+00:00",
+    "duration_seconds": "2284",
+    "entity_key": "atreides",
+    "event_type": "youtube_medium",
+    "identifier": "O4uInSgyWog",
+    "published": "2026-11-13T12:00:01+00:00",
+    "source": "Scholia Talk \u4e2d\u6587",
+    "title": "\u300cAI\u9700\u6c42\u7206\u767c\u8207\u7b97\u529b\u6f32\u50f9\u300dGavin Baker \u5b8c\u6574\u8a2a\u8ac7\uff5cTBPN \u4e2d\u82f1\u5b57\u5e55",
+    "url": "https://www.youtube.com/watch?v=O4uInSgyWog"
+  }
+]
